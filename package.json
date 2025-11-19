@@ -1,0 +1,14 @@
+{
+  "name": "neuropilot-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "serve": "^14.2.1"
+  },
+  "scripts": {
+    "build:web": "cd frontend/flutter_neuropilot && flutter build web --dart-define=FLUTTER_WEB_USE_SKIA=false",
+    "test:e2e": "playwright test",
+    "serve:web": "serve -s frontend/flutter_neuropilot/build/web -l 4173"
+  }
+}

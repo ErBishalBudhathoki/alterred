@@ -1,0 +1,91 @@
+name: Flutter CI
+
+on:
+  push:
+    branches: [ main, dev, development, staging, prod ]
+  pull_request:
+    branches: [ main, dev, development, staging, prod ]
+
+jobs:
+  analyze_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        working-directory: frontend/flutter_neuropilot
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: frontend/flutter_neuropilot
+        run: flutter analyze
+        continue-on-error: true
+
+      - name: Run tests
+        working-directory: frontend/flutter_neuropilot
+        run: flutter test
+
+  build_web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        working-directory: frontend/flutter_neuropilot
+        run: flutter pub get
+
+      - name: Build Web
+        working-directory: frontend/flutter_neuropilot
+        run: flutter build web --dart-define=FLUTTER_WEB_USE_SKIA=false
+
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-build-${{ github.ref_name }}
+          path: frontend/flutter_neuropilot/build/web
+
+  playwright_e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install Flutter deps
+        working-directory: frontend/flutter_neuropilot
+        run: flutter pub get
+
+      - name: Build Web (env-specific)
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL || 'http://localhost:8000' }}
+        working-directory: frontend/flutter_neuropilot
+        run: flutter build web --dart-define=FLUTTER_WEB_USE_SKIA=false --dart-define API_BASE_URL=${API_BASE_URL}
+
+      - name: Install Playwright deps
+        run: |
+          npm install
+          npx playwright install --with-deps
+
+      - name: Run Playwright tests (Chromium/Firefox/WebKit)
+        run: npx playwright test
