@@ -20,8 +20,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: TruffleHog OSS
-        id: trufflehog
+      - name: TruffleHog OSS (push)
+        id: trufflehog_push
+        if: github.event_name == 'push'
+        uses: trufflesecurity/trufflehog@v3.91.0
+        continue-on-error: true
+        with:
+          path: ${{ github.workspace }}
+          extra_args: --only-verified
+
+      - name: TruffleHog OSS (PR)
+        id: trufflehog_pr
+        if: github.event_name == 'pull_request'
         uses: trufflesecurity/trufflehog@v3.91.0
         continue-on-error: true
         with:
@@ -31,5 +41,5 @@ jobs:
           extra_args: --only-verified
 
       - name: Fail if secrets found
-        if: steps.trufflehog.outcome == 'failure'
+        if: steps.trufflehog_push.outcome == 'failure' || steps.trufflehog_pr.outcome == 'failure'
         run: exit 1
