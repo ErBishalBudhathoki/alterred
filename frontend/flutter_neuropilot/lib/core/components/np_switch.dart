@@ -13,7 +13,7 @@ class NpSwitch extends StatelessWidget {
       child: Switch(
         value: value,
         onChanged: onChanged,
-        activeColor: cs.primary,
+        activeThumbColor: cs.primary,
       ),
     );
   }

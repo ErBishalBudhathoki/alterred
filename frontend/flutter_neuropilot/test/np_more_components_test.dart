@@ -44,11 +44,15 @@ void main() {
     String? g;
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
-        body: Column(children: [
-          NpSwitch(value: s, onChanged: (v) => s = v),
-          NpCheckbox(value: c, onChanged: (v) => c = v ?? false),
-          NpRadio<String>(value: 'a', groupValue: g, onChanged: (v) => g = v),
-        ]),
+        body: RadioGroup<String>(
+          groupValue: g,
+          onChanged: (v) => g = v,
+          child: Column(children: [
+            NpSwitch(value: s, onChanged: (v) => s = v),
+            NpCheckbox(value: c, onChanged: (v) => c = v ?? false),
+            NpRadio<String>(value: 'a'),
+          ]),
+        ),
       ),
     ));
     await tester.tap(find.byType(Switch));

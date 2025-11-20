@@ -49,11 +49,11 @@ class ApiClient {
     return _decodeEnsureOk(r);
   }
 
-  Future<Map<String, dynamic>> createCountdown(String targetIso) async {
+  Future<Map<String, dynamic>> createCountdown(String query) async {
     final r = await http.post(
       Uri.parse('$baseUrl/time/countdown'),
       headers: _headers(),
-      body: jsonEncode({'target_iso': targetIso}),
+      body: jsonEncode({'query': query}),
     );
     return _decodeEnsureOk(r);
   }
@@ -92,6 +92,12 @@ class ApiClient {
       body: jsonEncode({'transcript': transcript}),
     );
     return _decodeEnsureOk(r);
+  }
+
+  Future<List<dynamic>> externalNotes() async {
+    final r = await http.get(Uri.parse('$baseUrl/external/notes'));
+    final m = _decodeEnsureOk(r);
+    return (m['notes'] as List<dynamic>? ?? []);
   }
 
   Future<Map<String, dynamic>> chatRespond(String text, {String? sessionId}) async {

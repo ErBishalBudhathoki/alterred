@@ -12,11 +12,12 @@ from services.compaction_service import compact_session
 from agents.taskflow_agent import schedule_tasks
 from neuropilot_starter_code import atomize_task, reduce_options
 from agents.time_perception_agent import create_countdown
+from fastapi.responses import JSONResponse
 from services.timer_store import store_countdown
 from agents.energy_sensory_agent import detect_sensory_overload
 from agents.decision_support_agent import paralysis_protocol
 from neuropilot_starter_code import match_task_to_energy
-from services.external_brain_store import store_voice_task, get_context
+from services.external_brain_store import store_voice_task, get_context, list_voice_tasks
 from services.a2a_service import connect_partner, post_update
 from services.metrics_service import compute_daily_overview
 from services.calendar_mcp import list_events_today, check_mcp_ready
@@ -74,10 +75,13 @@ def api_schedule(payload: Dict[str, Any] = Body(...)):
 
 @app.post("/time/countdown")
 def api_countdown(payload: Dict[str, Any] = Body(...)):
-    target = payload.get("target_iso")
-    conf = create_countdown(target)
+    query = payload.get("query")
+    conf = create_countdown(query)
+    if conf.get("ok") is False:
+        return JSONResponse(status_code=400, content={"ok": False, "error": conf.get("error", "invalid_duration")})
     tid = store_countdown(conf["target"], conf["warnings"])
-    return {"timer_id": tid, **conf}
+    res = {"timer_id": tid, **conf}
+    return res
 
 
 @app.post("/energy/detect")
@@ -124,6 +128,13 @@ def api_capture(payload: Dict[str, Any] = Body(...)):
 def api_context(task_id: str):
     ctx = get_context(task_id)
     return {"context": ctx}
+
+
+@app.get("/external/notes")
+def api_external_notes(request: Request, user_id: str | None = None):
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    notes = list_voice_tasks(uid)
+    return {"notes": notes}
 
 
 @app.post("/a2a/connect")

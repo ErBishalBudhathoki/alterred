@@ -1,100 +1,132 @@
 // Only compiled on web
 import 'dart:async';
-import 'dart:js' as js;
+import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'speech_service.dart';
 
 class _WebSpeech implements SpeechService {
-  js.JsObject? _rec;
+  JSObject? _rec;
   bool _running = false;
-  final StreamController<String> _partialCtl = StreamController<String>.broadcast();
+  final StreamController<String> _partialCtl =
+      StreamController<String>.broadcast();
 
   @override
-  bool get supported => js.context.hasProperty('webkitSpeechRecognition') || js.context.hasProperty('SpeechRecognition');
+  bool get supported {
+    final hasWebkit =
+        globalContext.hasProperty('webkitSpeechRecognition'.toJS).toDart;
+    final hasStandard =
+        globalContext.hasProperty('SpeechRecognition'.toJS).toDart;
+    return hasWebkit || hasStandard;
+  }
 
   @override
   Future<String?> startOnce() async {
     if (!supported) return null;
-    final ctor = js.context.hasProperty('webkitSpeechRecognition')
-        ? js.context['webkitSpeechRecognition']
-        : js.context['SpeechRecognition'];
-    _rec = js.JsObject(ctor);
-    _rec!['continuous'] = false;
-    _rec!['interimResults'] = true;
+    final ctorName = globalContext
+            .hasProperty('webkitSpeechRecognition'.toJS)
+            .toDart
+        ? 'webkitSpeechRecognition'
+        : 'SpeechRecognition';
+    final ctor =
+        globalContext.getProperty<JSFunction>(ctorName.toJS);
+    _rec = ctor.callAsConstructorVarArgs<JSObject>();
+    _rec!.setProperty('continuous'.toJS, false.toJS);
+    _rec!.setProperty('interimResults'.toJS, true.toJS);
+    print('WebSpeech: using constructor $ctorName, continuous=false, interimResults=true');
     try {
-      final nav = js.context['navigator'];
-      final lang = nav != null && nav.hasProperty('language') ? nav['language'] : 'en-US';
-      _rec!['lang'] = lang;
+      final nav = globalContext.getProperty<JSObject>('navigator'.toJS);
+      final hasLang = nav.hasProperty('language'.toJS).toDart;
+      final lang = hasLang
+          ? nav.getProperty<JSAny>('language'.toJS)
+          : 'en-US'.toJS;
+      _rec!.setProperty('lang'.toJS, lang);
+      print('WebSpeech: language=$lang');
     } catch (_) {
-      _rec!['lang'] = 'en-US';
+      _rec!.setProperty('lang'.toJS, 'en-US'.toJS);
+      print('WebSpeech: language fallback=en-US');
     }
     final c = Completer<String?>();
     _running = true;
     String last = '';
-    print('[SpeechService] Starting recognition...');
-    _rec!['onresult'] = js.allowInterop((event) {
-      try {
-        // Use JsObject to wrap the browser event and access properties
-        final jsEvent = js.JsObject.fromBrowserObject(event);
-        final results = jsEvent['results'];
-        final idx = jsEvent['resultIndex'] ?? 0;
-        final result = results[idx];
-        final item = result[0];
-        final transcript = item['transcript'];
-        if (transcript != null && transcript.toString().isNotEmpty) {
-          last = transcript.toString();
-          _partialCtl.add(last);
-          print('[SpeechService] Got transcript: "$last"');
-        }
-        bool isFinal = false;
-        try { 
-          final finalProp = result['isFinal'];
-          isFinal = finalProp == true;
-        } catch (_) {}
-        print('[SpeechService] isFinal: $isFinal, last: "$last"');
-        if (isFinal) {
-          _running = false;
-          _rec!.callMethod('stop');
-          print('[SpeechService] Final result, completing with: "$last"');
+    _rec!.setProperty(
+        'onresult'.toJS,
+        (JSAny event) {
+          try {
+            final jsEvent = event as JSObject;
+            final results = jsEvent.getProperty<JSAny>('results'.toJS) as JSObject;
+            final idxAny = jsEvent.getProperty<JSAny>('resultIndex'.toJS);
+            final idxNum = idxAny.dartify() as num?;
+            final idx = idxNum?.toInt() ?? 0;
+            final result = results.getProperty<JSAny>(idx.toJS) as JSObject;
+            final item = result.getProperty<JSAny>(0.toJS) as JSObject;
+            final transcriptAny = item.getProperty<JSAny>('transcript'.toJS);
+            final tStr = transcriptAny.dartify()?.toString() ?? '';
+            print('WebSpeech: onresult idx=$idx transcript="$tStr"');
+            if (tStr.isNotEmpty) {
+              last = tStr;
+              _partialCtl.add(last);
+            }
+            final finalProp = result.getProperty<JSAny>('isFinal'.toJS);
+            final finalVal = finalProp.dartify();
+            final isFinal = finalVal is bool ? finalVal : false;
+            print('WebSpeech: result isFinal=$isFinal');
+            if (isFinal) {
+              _running = false;
+              _rec!.callMethod('stop'.toJS);
+              if (!c.isCompleted) c.complete(last.isNotEmpty ? last : null);
+            }
+          } catch (e) {
+            print('WebSpeech: onresult error=$e');
+            _running = false;
+            try {
+              _rec!.callMethod('stop'.toJS);
+            } catch (_) {}
+            if (!c.isCompleted) c.complete(null);
+          }
+        }.toJS);
+    _rec!.setProperty(
+        'onspeechend'.toJS,
+        (JSAny _) {
+          print('WebSpeech: onspeechend');
+          if (_running) {
+            _running = false;
+            try {
+              _rec!.callMethod('stop'.toJS);
+            } catch (_) {}
+          }
+        }.toJS);
+    _rec!.setProperty(
+        'onend'.toJS,
+        (JSAny _) {
+          print('WebSpeech: onend');
           if (!c.isCompleted) c.complete(last.isNotEmpty ? last : null);
-        }
-      } catch (e) {
-        print('[SpeechService] onresult error: $e');
-        _running = false;
-        try { _rec!.callMethod('stop'); } catch (_) {}
-        if (!c.isCompleted) c.complete(null);
-      }
-    });
-    _rec!['onspeechend'] = js.allowInterop((_) {
-      print('[SpeechService] onspeechend fired, last: "$last", running: $_running');
-      // If speech ends naturally, finalize with last partial
-      if (_running) {
-        _running = false;
-        try { _rec!.callMethod('stop'); } catch (_) {}
-        print('[SpeechService] Completing from onspeechend with: "$last"');
-        if (!c.isCompleted) c.complete(last.isNotEmpty ? last : null);
-      }
-    });
-    _rec!['onend'] = js.allowInterop((_) {
-      print('[SpeechService] onend fired, last: "$last", completed: ${c.isCompleted}');
-      if (!c.isCompleted) c.complete(last.isNotEmpty ? last : null);
-    });
-    _rec!['onerror'] = js.allowInterop((event) {
-      _running = false;
-      try { _rec!.callMethod('stop'); } catch (_) {}
-      // Capture error details for debugging
-      String errorType = 'unknown';
-      try {
-        errorType = event['error']?.toString() ?? 'unknown';
-      } catch (_) {}
-      // Log error to console for debugging
-      print('[SpeechService] Recognition error: $errorType');
-      if (!c.isCompleted) c.complete(null);
-    });
-    _rec!.callMethod('start');
+        }.toJS);
+    _rec!.setProperty(
+        'onerror'.toJS,
+        (JSAny event) {
+          try {
+            final err = (event as JSObject).getProperty<JSAny>('error'.toJS).dartify();
+            final hasMsg = (event as JSObject).hasProperty('message'.toJS).toDart;
+            final msg = hasMsg ? (event as JSObject).getProperty<JSAny>('message'.toJS).dartify() : null;
+            print('WebSpeech: onerror error=${err?.toString()} message=${msg?.toString()}');
+          } catch (_) {
+            print('WebSpeech: onerror (details unavailable)');
+          }
+          _running = false;
+          try {
+            _rec!.callMethod('stop'.toJS);
+          } catch (_) {}
+          if (!c.isCompleted) c.complete(null);
+        }.toJS);
+    print('WebSpeech: start');
+    _rec!.callMethod('start'.toJS);
     Timer(const Duration(seconds: 60), () {
       if (!c.isCompleted) {
+        print('WebSpeech: timeout reached, stopping');
         _running = false;
-        try { _rec!.callMethod('stop'); } catch (_) {}
+        try {
+        _rec!.callMethod('stop'.toJS);
+        } catch (_) {}
         c.complete(last.isNotEmpty ? last : null);
       }
     });
@@ -104,7 +136,12 @@ class _WebSpeech implements SpeechService {
   @override
   Future<void> stop() async {
     _running = false;
-    try { _rec?.callMethod('stop'); } catch (_) {}
+    try {
+      if (_rec != null) {
+        print('WebSpeech: manual stop');
+        _rec!.callMethod('stop'.toJS);
+      }
+    } catch (_) {}
   }
 
   @override

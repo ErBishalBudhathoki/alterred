@@ -17,6 +17,19 @@ class ExternalBrainScreen extends ConsumerStatefulWidget {
 class _ExternalBrainScreenState extends ConsumerState<ExternalBrainScreen> {
   final _transcript = TextEditingController();
   String? _taskId;
+  List<Map<String, dynamic>> _notes = [];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final api = ref.read(apiClientProvider);
+        final list = await api.externalNotes();
+        setState(() => _notes = list.cast<Map<String, dynamic>>());
+      } catch (_) {}
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,6 +47,10 @@ class _ExternalBrainScreenState extends ConsumerState<ExternalBrainScreen> {
               try {
                 final res = await api.captureExternal(_transcript.text);
                 setState(() => _taskId = res['task_id'] as String?);
+                try {
+                  final list = await api.externalNotes();
+                  setState(() => _notes = list.cast<Map<String, dynamic>>());
+                } catch (_) {}
               } catch (e) {
                 NpSnackbar.show(context, '$e', type: NpSnackType.destructive);
               }
@@ -44,6 +61,34 @@ class _ExternalBrainScreenState extends ConsumerState<ExternalBrainScreen> {
           ),
           const SizedBox(height: DesignTokens.spacingMd),
           if (_taskId != null) Text('Captured task: $_taskId'),
+          const SizedBox(height: DesignTokens.spacingMd),
+          Row(children:[
+            Expanded(child: Text('Captured notes', style: Theme.of(context).textTheme.titleMedium)),
+            NpButton(label: 'Refresh', icon: Icons.refresh, type: NpButtonType.secondary, onPressed: () async {
+              try {
+                final list = await api.externalNotes();
+                setState(() => _notes = list.cast<Map<String, dynamic>>());
+              } catch (e) {
+                NpSnackbar.show(context, '$e', type: NpSnackType.warning);
+              }
+            }),
+          ]),
+          const SizedBox(height: DesignTokens.spacingSm),
+          Expanded(
+            child: ListView.builder(
+              itemCount: _notes.length,
+              itemBuilder: (ctx, i) {
+                final n = _notes[i];
+                final ttl = (n['title'] as String?) ?? 'Untitled';
+                final when = (n['created_at'] as String?) ?? '';
+                return ListTile(
+                  leading: const Icon(Icons.note),
+                  title: Text(ttl),
+                  subtitle: Text(when),
+                );
+              },
+            ),
+          ),
           const SizedBox(height: DesignTokens.spacingMd),
           NpButton(
             label: l.clearLabel,

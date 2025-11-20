@@ -7,7 +7,8 @@ class _MobileSpeech implements SpeechService {
   final stt.SpeechToText _speech = stt.SpeechToText();
   bool _available = false;
   bool _listening = false;
-  final StreamController<String> _partialCtl = StreamController<String>.broadcast();
+  final StreamController<String> _partialCtl =
+      StreamController<String>.broadcast();
   String? _localeId;
   Timer? _silenceTimer;
 
@@ -65,10 +66,13 @@ class _MobileSpeech implements SpeechService {
             _silenceTimer?.cancel();
             _silenceTimer = Timer(const Duration(milliseconds: 1500), () async {
               if (_listening) {
-                try { await _speech.stop(); } catch (_) {}
+                try {
+                  await _speech.stop();
+                } catch (_) {}
                 _listening = false;
                 if (!completer.isCompleted) {
-                  completer.complete(lastNonEmpty.isNotEmpty ? lastNonEmpty : null);
+                  completer
+                      .complete(lastNonEmpty.isNotEmpty ? lastNonEmpty : null);
                 }
               }
             });

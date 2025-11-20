@@ -49,7 +49,6 @@ def body_double(mode: str = "start") -> dict:
     return {
         "mode": "start", 
         "presence": "I'm here with you. I'll stay quiet but present. I'll check in gently if you're silent for a while.",
-        "check_in_interval_seconds": 15,  # 15 seconds for testing
         "ui_mode": "body_double"
     }
 
