@@ -1,17 +1,47 @@
 name: Deploy Frontend to Firebase Hosting
 
 on:
-  push:
-    branches: ["main"]
+  workflow_run:
+    workflows: ["Build and Deploy Backend to Cloud Run"]
+    types: [completed]
+  workflow_dispatch:
 
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      - name: Auth via Workload Identity Federation
+        if: ${{ vars.WIF_PROVIDER != '' && vars.WIF_SERVICE_ACCOUNT != '' }}
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+      - name: Auth via Service Account JSON (fallback)
+        if: ${{ vars.WIF_PROVIDER == '' || vars.WIF_SERVICE_ACCOUNT == '' }}
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SA_JSON }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: neuropilot-23fb5
+      - name: Wait for Cloud Run service to exist
+        shell: bash
+        run: |
+          set -e
+          ATTEMPTS=0
+          until gcloud run services describe neuropilot-api --region australia-southeast1 --platform managed >/dev/null 2>&1; do
+            ATTEMPTS=$((ATTEMPTS+1))
+            if [ "$ATTEMPTS" -gt 24 ]; then
+              echo "Timed out waiting for Cloud Run service neuropilot-api" >&2
+              exit 1
+            fi
+            echo "Waiting for Cloud Run service neuropilot-api (attempt $ATTEMPTS)" && sleep 5
+          done
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -42,7 +72,8 @@ jobs:
       - name: Hosting rewrite smoke test
         shell: bash
         run: |
-          DOMAIN=${{ vars.FIREBASE_HOSTING_DOMAIN || 'neuropilot-23fb5.web.app' }}
+          DOMAIN="${{ vars.FIREBASE_HOSTING_DOMAIN }}"
+          if [ -z "$DOMAIN" ]; then DOMAIN="neuropilot-23fb5.web.app"; fi
           echo "Testing https://${DOMAIN}/api/health"
           code=$(curl -s -o /dev/null -w "%{http_code}" "https://${DOMAIN}/api/health")
           if [ "$code" != "200" ]; then
