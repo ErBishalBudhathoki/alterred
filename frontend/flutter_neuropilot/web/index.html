@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="UTF-8" />
   <meta content="IE=Edge" http-equiv="X-UA-Compatible" />
@@ -7,15 +8,18 @@
   <!-- <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" /> -->
   <title>NeuroPilot</title>
   <link rel="manifest" href="manifest.json" />
+  <base href="/">
   <meta name="theme-color" content="#3B82F6" />
   <script>var serviceWorkerVersion = "{{flutter_service_worker_version}}";</script>
   <script>
-    {{flutter_js}}
+    { { flutter_js } }
   </script>
 </head>
+
 <body>
   <script>
-    {{flutter_bootstrap_js}}
+    { { flutter_bootstrap_js } }
   </script>
 </body>
+
 </html>
