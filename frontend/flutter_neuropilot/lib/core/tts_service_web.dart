@@ -1,6 +1,7 @@
 // Only compiled on web
 import 'dart:async';
-import 'dart:html' as html;
+import 'dart:js_interop';
+import 'package:web/web.dart' as web;
 import 'tts_service.dart';
 
 class _WebTts implements TtsService {
@@ -8,7 +9,7 @@ class _WebTts implements TtsService {
   double _volume = 1.0;
 
   @override
-  bool get supported => html.window.speechSynthesis != null;
+  bool get supported => true;
 
   @override
   double get volume => _volume;
@@ -20,23 +21,22 @@ class _WebTts implements TtsService {
 
   @override
   Future<void> speak(String text) async {
-    final synth = html.window.speechSynthesis;
-    if (synth == null) return;
-    final utter = html.SpeechSynthesisUtterance(text);
+    final synth = web.window.speechSynthesis;
+    final utter = web.SpeechSynthesisUtterance(text);
     utter.volume = _volume;
     utter.rate = 1.0;
     utter.pitch = 1.0;
-    utter.onStart.listen((_) => _speakingCtl.add(true));
-    utter.onEnd.listen((_) => _speakingCtl.add(false));
-    utter.onError.listen((_) => _speakingCtl.add(false));
+    utter.onstart = ((_) => _speakingCtl.add(true)).toJS;
+    utter.onend = ((_) => _speakingCtl.add(false)).toJS;
+    utter.onerror = ((_) => _speakingCtl.add(false)).toJS;
     _speakingCtl.add(true);
     synth.speak(utter);
   }
 
   @override
   Future<void> stop() async {
-    final synth = html.window.speechSynthesis;
-    synth?.cancel();
+    final synth = web.window.speechSynthesis;
+    synth.cancel();
     _speakingCtl.add(false);
   }
 

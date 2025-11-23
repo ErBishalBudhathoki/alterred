@@ -19,12 +19,13 @@ class FakeApiClient extends ApiClient {
     if (m != null) {
       final n = int.parse(m.group(1)!);
       final unit = m.group(2)!;
-      if (unit.startsWith('s'))
+      if (unit.startsWith('s')) {
         seconds = n;
-      else if (unit.startsWith('m'))
+      } else if (unit.startsWith('m')) {
         seconds = n * 60;
-      else
+      } else {
         seconds = n * 3600;
+      }
     } else {
       seconds = 60;
     }
@@ -61,9 +62,10 @@ void main() {
       (tester) async {
     await tester.pumpWidget(_buildApp(const chat.ChatScreen()));
     await tester.enterText(find.byType(TextField), 'set timer for 59 sec');
-    await tester.tap(find.text('Send'));
-    await tester.pump();
-    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(find.text('Timers'));
+    await tester.pump(const Duration(milliseconds: 100));
     expect(find.textContaining('Active — 59'), findsOneWidget);
   });
 
@@ -71,16 +73,20 @@ void main() {
     await tester.pumpWidget(_buildApp(const chat.ChatScreen()));
     await tester.enterText(find.byType(TextField),
         'set timer for 5 sec, 7 sec, 9 sec, 11 sec, 13 sec');
-    await tester.tap(find.text('Send'));
-    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Timers'));
+    await tester.pump(const Duration(milliseconds: 100));
     expect(find.textContaining('Timer set for '), findsNWidgets(5));
   });
 
   testWidgets('Countdown updates over 1 second', (tester) async {
     await tester.pumpWidget(_buildApp(const chat.ChatScreen()));
     await tester.enterText(find.byType(TextField), 'set timer for 10 sec');
-    await tester.tap(find.text('Send'));
-    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Timers'));
+    await tester.pump(const Duration(milliseconds: 100));
     final cardFinder = find.byWidgetPredicate((w) =>
         w is Container &&
         w.key is ValueKey &&

@@ -9,12 +9,14 @@ class AuthService {
   Future<bool> initialize() async {
     if (_initialized) return true;
     try {
-      await Firebase.initializeApp();
+      if (Firebase.apps.isEmpty) {
+        await Firebase.initializeApp();
+      }
       _initialized = true;
       return true;
     } catch (_) {
-      _initialized = false;
-      return false;
+      _initialized = Firebase.apps.isNotEmpty;
+      return _initialized;
     }
   }
 

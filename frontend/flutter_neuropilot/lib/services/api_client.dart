@@ -6,7 +6,8 @@ import 'package:http/http.dart' as http;
 class ApiClient {
   final String baseUrl;
   final String? token;
-  ApiClient({required this.baseUrl, this.token});
+  final http.Client _client;
+  ApiClient({required this.baseUrl, this.token, http.Client? client}) : _client = client ?? http.Client();
 
   Map<String, String> _headers() => {
         'Content-Type': 'application/json',
@@ -14,27 +15,27 @@ class ApiClient {
       };
 
   Future<Map<String, dynamic>> health() async {
-    final r = await _send(http.get(Uri.parse('$baseUrl/health')));
+    final r = await _send(_client.get(Uri.parse('$baseUrl/health')));
     return _decodeEnsureOk(r);
   }
 
   Future<Map<String, dynamic>> metricsOverview() async {
-    final r = await _send(http.get(Uri.parse('$baseUrl/metrics/overview')));
+    final r = await _send(_client.get(Uri.parse('$baseUrl/metrics/overview')));
     return _decodeEnsureOk(r);
   }
 
   Future<Map<String, dynamic>> calendarEventsToday() async {
-    final r = await _send(http.get(Uri.parse('$baseUrl/calendar/events/today')));
+    final r = await _send(_client.get(Uri.parse('$baseUrl/calendar/events/today')));
     return _decodeEnsureOk(r);
   }
 
   Future<Map<String, dynamic>> sessionsYesterday() async {
-    final r = await _send(http.get(Uri.parse('$baseUrl/sessions/yesterday')));
+    final r = await _send(_client.get(Uri.parse('$baseUrl/sessions/yesterday')));
     return _decodeEnsureOk(r);
   }
 
   Future<Map<String, dynamic>> atomizeTask(String description) async {
-    final r = await _send(http.post(
+    final r = await _send(_client.post(
       Uri.parse('$baseUrl/tasks/atomize'),
       headers: _headers(),
       body: jsonEncode({'description': description}),
@@ -43,7 +44,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> scheduleTasks(List<String> items, int energy, List<int>? weights) async {
-    final r = await _send(http.post(
+    final r = await _send(_client.post(
       Uri.parse('$baseUrl/tasks/schedule'),
       headers: _headers(),
       body: jsonEncode({'items': items, 'energy': energy, 'weights': weights}),
@@ -52,7 +53,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> createCountdown(String query) async {
-    final r = await _send(http.post(
+    final r = await _send(_client.post(
       Uri.parse('$baseUrl/time/countdown'),
       headers: _headers(),
       body: jsonEncode({'query': query}),
@@ -61,7 +62,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> energyMatch(List<String> tasks, int energy) async {
-    final r = await _send(http.post(
+    final r = await _send(_client.post(
       Uri.parse('$baseUrl/energy/match'),
       headers: _headers(),
       body: jsonEncode({'tasks': tasks, 'energy': energy}),
@@ -70,7 +71,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> reduceOptions(List<String> options, int limit) async {
-    final r = await _send(http.post(
+    final r = await _send(_client.post(
       Uri.parse('$baseUrl/decision/reduce'),
       headers: _headers(),
       body: jsonEncode({'options': options, 'limit': limit}),
@@ -79,7 +80,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> decisionCommit(String choice) async {
-    final r = await _send(http.post(
+    final r = await _send(_client.post(
       Uri.parse('$baseUrl/decision/commit'),
       headers: _headers(),
       body: jsonEncode({'choice': choice}),
@@ -88,7 +89,7 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> captureExternal(String transcript) async {
-    final r = await _send(http.post(
+    final r = await _send(_client.post(
       Uri.parse('$baseUrl/external/capture'),
       headers: _headers(),
       body: jsonEncode({'transcript': transcript}),
@@ -97,7 +98,7 @@ class ApiClient {
   }
 
   Future<List<dynamic>> externalNotes() async {
-    final r = await _send(http.get(Uri.parse('$baseUrl/external/notes')));
+    final r = await _send(_client.get(Uri.parse('$baseUrl/external/notes')));
     final m = _decodeEnsureOk(r);
     return (m['notes'] as List<dynamic>? ?? []);
   }
@@ -105,7 +106,7 @@ class ApiClient {
   Future<Map<String, dynamic>> chatRespond(String text, {String? sessionId}) async {
     final payload = <String, dynamic>{'text': text};
     if (sessionId != null) payload['session_id'] = sessionId;
-    final r = await _send(http.post(
+    final r = await _send(_client.post(
       Uri.parse('$baseUrl/chat/respond'),
       headers: _headers(),
       body: jsonEncode(payload),
@@ -116,7 +117,7 @@ class ApiClient {
   Future<Map<String, dynamic>> chatCommand(String text, {String? sessionId}) async {
     final payload = <String, dynamic>{'text': text};
     if (sessionId != null) payload['session_id'] = sessionId;
-    final r = await _send(http.post(
+    final r = await _send(_client.post(
       Uri.parse('$baseUrl/chat/command'),
       headers: _headers(),
       body: jsonEncode(payload),

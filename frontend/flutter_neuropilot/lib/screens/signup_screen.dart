@@ -61,6 +61,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     final displayName = '${_firstName.text.trim()} ${_lastName.text.trim()}';
     final ok = await ctl.signUpEmail(_email.text.trim(), _password.text.trim(),
         displayName: displayName);
+    if (!mounted) return;
     setState(() => _loading = false);
     if (!ok) {
       NpSnackbar.show(context, 'Unable to create account',

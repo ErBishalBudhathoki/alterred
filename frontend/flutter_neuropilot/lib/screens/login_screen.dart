@@ -39,6 +39,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() => _loading = true);
     final ctl = ref.read(authControllerProvider);
     final ok = await ctl.signInEmail(_email.text.trim(), _password.text.trim());
+    if (!mounted) return;
     setState(() => _loading = false);
     if (!ok) {
       NpSnackbar.show(context, 'Invalid email or password',
@@ -52,6 +53,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() => _loading = true);
     final ctl = ref.read(authControllerProvider);
     final ok = await ctl.signInGoogle();
+    if (!mounted) return;
     setState(() => _loading = false);
     if (!ok) {
       NpSnackbar.show(context, 'Google sign-in failed',
@@ -69,6 +71,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
     final ctl = ref.read(authControllerProvider);
     await ctl.sendPasswordReset(_email.text.trim());
+    if (!mounted) return;
     NpSnackbar.show(context, 'Check your inbox for reset link',
         type: NpSnackType.info);
   }

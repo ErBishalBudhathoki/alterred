@@ -90,7 +90,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   String _modeBannerText = '';
   Timer? _modeBannerTimer;
   bool _focusMode = false;
-  bool _minimalMode = false;
+  final bool _minimalMode = false;
   bool _showTimersSection = false;
   bool _showInactivityPrompt = false;
   bool _bodyDoubleActive = false;
@@ -108,7 +108,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   // Proactive Check-in State (Always Active)
   int _sessionDurationMinutes = 0;
   Timer? _sessionTimer;
-  int _checkInIntervalSeconds = 120; // 2 minutes
+  final int _checkInIntervalSeconds = 120; // 2 minutes
   Timer? _inactivityTimer;
   DateTime? _lastActivityTime;
 
@@ -209,9 +209,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                               ? 'Backend: Connected'
                               : 'Backend: Offline',
                           selected: _backendOk),
-                      ..._engaged
-                          .map((e) => NpChip(label: e, selected: true))
-                          .toList(),
+                      ..._engaged.map((e) => NpChip(label: e, selected: true)),
                     ],
                   ),
                 ],
@@ -268,10 +266,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                           const Icon(Icons.mic, color: DesignTokens.onPrimary),
                     ),
                     const SizedBox(width: DesignTokens.spacingSm),
-                    Expanded(
+                    const Expanded(
                         child: Text('Listening...',
-                            style: const TextStyle(
-                                color: DesignTokens.onPrimary))),
+                            style: TextStyle(color: DesignTokens.onPrimary))),
                     const SizedBox(width: DesignTokens.spacingSm),
                     if (_partialText.isNotEmpty)
                       Expanded(
@@ -389,7 +386,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.05),
+                                color: Colors.black.withValues(alpha: 0.05),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               )
@@ -633,14 +630,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                     _input.text = finalText;
                                     await _handleSubmit(api, isVoice: true);
                                   } else {
-                                    NpSnackbar.show(context,
-                                        'Voice recognition failed. Please check microphone permissions and try again. Check browser console for details.',
-                                        type: NpSnackType.warning);
+                                    if (context.mounted) {
+                                      NpSnackbar.show(context,
+                                          'Voice recognition failed. Please check microphone permissions and try again. Check browser console for details.',
+                                          type: NpSnackType.warning);
+                                    }
                                   }
                                 } else {
-                                  NpSnackbar.show(context,
-                                      'Voice recording not supported on this device/browser.',
-                                      type: NpSnackType.destructive);
+                                  if (context.mounted) {
+                                    NpSnackbar.show(context,
+                                        'Voice recording not supported on this device/browser.',
+                                        type: NpSnackType.destructive);
+                                  }
                                 }
                                 return;
                               }
@@ -789,32 +790,51 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       }
     } catch (e) {
       debugPrint("JIT prompt failed: $e");
+      if (!mounted) return;
       NpSnackbar.show(context, '$e', type: NpSnackType.warning);
     }
   }
 
   Intent _inferIntent(String q) {
     final s = q.toLowerCase();
-    if (s.contains('health') || s.contains('status')) return Intent.health;
-    if (s.contains('atomize')) return Intent.atomize;
-    if (s.contains('schedule')) return Intent.schedule;
-    if (s.contains('countdown') || s.contains('timer') || s.contains('iso'))
+    if (s.contains('health') || s.contains('status')) {
+      return Intent.health;
+    }
+    if (s.contains('atomize')) {
+      return Intent.atomize;
+    }
+    if (s.contains('schedule')) {
+      return Intent.schedule;
+    }
+    if (s.contains('countdown') || s.contains('timer') || s.contains('iso')) {
       return Intent.countdown;
-    if (s.contains('reduce') || s.contains('decide')) return Intent.reduce;
-    if (s.contains('energy')) return Intent.energyMatch;
-    if (s.contains('capture') || s.contains('voice'))
+    }
+    if (s.contains('reduce') || s.contains('decide')) {
+      return Intent.reduce;
+    }
+    if (s.contains('energy')) {
+      return Intent.energyMatch;
+    }
+    if (s.contains('capture') || s.contains('voice')) {
       return Intent.externalCapture;
+    }
     if (s.contains('appointment') ||
         s.contains('calendar') ||
-        s.contains('event')) return Intent.calendarToday;
-    if (s == 'help' || s.contains('help') || s.contains('commands'))
+        s.contains('event')) {
+      return Intent.calendarToday;
+    }
+    if (s == 'help' || s.contains('help') || s.contains('commands')) {
       return Intent.help;
+    }
     if (s.contains('overview') ||
         s.contains('today') ||
         s.contains('planned') ||
-        s.contains('plans')) return Intent.overview;
-    if (s.contains('sessions') || s.contains('yesterday'))
+        s.contains('plans')) {
+      return Intent.overview;
+    }
+    if (s.contains('sessions') || s.contains('yesterday')) {
       return Intent.sessions;
+    }
     return Intent.unknown;
   }
 
@@ -868,6 +888,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           "System: User has been silent for $_checkInIntervalSeconds seconds. "
           "Session active for $_sessionDurationMinutes minutes. "
           "Please use body_double_checkin tool with duration_minutes=$_sessionDurationMinutes.");
+      if (!mounted) return;
       _disengage('Proactive Check-in');
 
       final reply = (r['text'] as String?) ?? '';
@@ -890,9 +911,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       }
     } catch (e) {
       debugPrint("Check-in failed: $e");
-      NpSnackbar.show(context, '$e', type: NpSnackType.warning);
+      if (mounted) {
+        NpSnackbar.show(context, '$e', type: NpSnackType.warning);
+      }
     } finally {
-      _resetInactivityTimer();
+      if (mounted) {
+        _resetInactivityTimer();
+      }
     }
   }
 
@@ -943,42 +968,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _shortTimerTicker!.start();
     }
 
-    if (_timerTicker == null) {
-      _timerTicker = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (_timers.isEmpty) {
-          _timerTicker?.cancel();
-          _timerTicker = null;
-          return;
+    _timerTicker ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_timers.isEmpty) {
+        _timerTicker?.cancel();
+        _timerTicker = null;
+        return;
+      }
+      setState(() {
+        final nowTick = DateTime.now();
+        final removeIds = <String>[];
+        for (final t in _timers) {
+          if (!t.paused && !t.completed) {
+            final rem = t.target.difference(nowTick).inSeconds;
+            t.remainingSeconds = rem < 0 ? 0 : rem;
+            if (t.remainingSeconds <= 0) {
+              t.completed = true;
+              t.completedAt = DateTime.now();
+              _appendAssistant('Timer completed.');
+              removeIds.add(t.id);
+            }
+          }
         }
-        setState(() {
-          final nowTick = DateTime.now();
-          final removeIds = <String>[];
-          for (final t in _timers) {
-            if (!t.paused && !t.completed) {
-              final rem = t.target.difference(nowTick).inSeconds;
-              t.remainingSeconds = rem < 0 ? 0 : rem;
-              if (t.remainingSeconds <= 0) {
-                t.completed = true;
-                t.completedAt = DateTime.now();
-                _appendAssistant('Timer completed.');
-                removeIds.add(t.id);
-              }
-            }
+        if (removeIds.isNotEmpty) {
+          _timers.removeWhere((x) => removeIds.contains(x.id));
+          if (_activeTimerId != null && removeIds.contains(_activeTimerId)) {
+            _activeTimerId = _timers.isNotEmpty ? _timers.last.id : null;
           }
-          if (removeIds.isNotEmpty) {
-            _timers.removeWhere((x) => removeIds.contains(x.id));
-            if (_activeTimerId != null && removeIds.contains(_activeTimerId)) {
-              _activeTimerId = _timers.isNotEmpty ? _timers.last.id : null;
-            }
-          }
-          // In normal runtime, completed timers fade out and are removed.
-          _timers.removeWhere((x) =>
-              x.completed &&
-              x.completedAt != null &&
-              DateTime.now().difference(x.completedAt!).inMilliseconds > 700);
-        });
+        }
+        // In normal runtime, completed timers fade out and are removed.
+        _timers.removeWhere((x) =>
+            x.completed &&
+            x.completedAt != null &&
+            DateTime.now().difference(x.completedAt!).inMilliseconds > 700);
       });
-    }
+    });
   }
 
   Future<void> _handleSubmit(ApiClient api,
@@ -1063,6 +1086,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       try {
         rr = await api.chatRespond(text);
       } catch (e) {
+        if (!mounted) return;
         _disengage('ADK Orchestrator');
         NpSnackbar.show(context, '$e', type: NpSnackType.warning);
         return;
@@ -1089,8 +1113,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   (t.containsKey('ui_mode') || t['mode'] == 'stop')))
               .toList();
           if (displayTools.isNotEmpty || reply.isNotEmpty) {
-            _appendAssistant(
-                '${reply.isNotEmpty ? reply + "\n" : ''}${displayTools.isNotEmpty ? "Tools: $displayTools" : ""}');
+            final parts = <String>[
+              if (reply.isNotEmpty) reply,
+              if (displayTools.isNotEmpty) 'Tools: $displayTools',
+            ];
+            _appendAssistant(parts.join('\n'));
           }
         } else {
           _appendAssistant(reply);
@@ -1227,11 +1254,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           break;
       }
     } catch (e) {
+      if (!mounted) return;
       NpSnackbar.show(context, '$e', type: NpSnackType.destructive);
       _appendAssistant('Error: $e');
     } finally {
-      setState(() => _loading = false);
-      _input.clear();
+      if (mounted) {
+        setState(() => _loading = false);
+        _input.clear();
+      }
     }
   }
 
@@ -1334,10 +1364,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     try {
       await _tts.stop();
     } catch (_) {}
+    if (!mounted) return;
     if (!_speech.supported) {
-      NpSnackbar.show(
-          context, 'Voice recording not supported on this device/browser.',
-          type: NpSnackType.destructive);
+      if (mounted) {
+        NpSnackbar.show(
+            context, 'Voice recording not supported on this device/browser.',
+            type: NpSnackType.destructive);
+      }
       setState(() => _voiceSession = false);
       return;
     }
@@ -1433,12 +1466,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         final n = int.tryParse(m.group(1)!);
         final unit = m.group(2)!;
         if (n != null && n > 0) {
-          if (unit.startsWith('s'))
+          if (unit.startsWith('s')) {
             secs = n;
-          else if (unit.startsWith('m'))
+          } else if (unit.startsWith('m')) {
             secs = n * 60;
-          else
+          } else {
             secs = n * 3600;
+          }
         }
       }
       return _TimerParseResult(_TimerAction.create,
@@ -1847,10 +1881,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                         Expanded(
                             child: Text(status, style: TextStyle(color: fg))),
                         if (active)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 8.0),
-                            child:
-                                const NpChip(label: 'Active', selected: true),
+                          const Padding(
+                            padding: EdgeInsets.only(left: 8.0),
+                            child: NpChip(label: 'Active', selected: true),
                           ),
                       ],
                     ),

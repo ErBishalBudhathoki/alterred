@@ -2,6 +2,7 @@ import 'dart:async';
 import 'speech_service.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show debugPrint;
 
 class _MobileSpeech implements SpeechService {
   final stt.SpeechToText _speech = stt.SpeechToText();
@@ -32,30 +33,29 @@ class _MobileSpeech implements SpeechService {
           _errors++;
           _listening = false;
           _silenceTimer?.cancel();
-          print('MobileSTT: initialize error=$err');
+          debugPrint('MobileSTT: initialize error=$err');
           try {
             _speech.cancel();
           } catch (_) {}
         },
         onStatus: (String status) {
-          // Useful for diagnosing recognition lifecycle transitions
-          print('MobileSTT: status=$status');
+          debugPrint('MobileSTT: status=$status');
           _listening = status == 'listening';
         },
       );
-      print('MobileSTT: initialize available=$_available');
+      debugPrint('MobileSTT: initialize available=$_available');
       try {
         final sys = await _speech.systemLocale();
         _localeId = sys?.localeId;
-        print('MobileSTT: systemLocale=$_localeId');
+        debugPrint('MobileSTT: systemLocale=$_localeId');
       } catch (_) {
         final tag = ui.PlatformDispatcher.instance.locale.toLanguageTag();
         _localeId = tag.replaceAll('-', '_');
-        print('MobileSTT: fallback locale=$_localeId');
+        debugPrint('MobileSTT: fallback locale=$_localeId');
       }
     } catch (_) {
       _available = false;
-      print('MobileSTT: initialize threw; available=false');
+      debugPrint('MobileSTT: initialize threw; available=false');
     }
   }
 
@@ -86,7 +86,7 @@ class _MobileSpeech implements SpeechService {
       _partials = 0;
       _avgLevel = 0.0;
       _levelSamples = 0;
-      print(
+      debugPrint(
           'MobileSTT: listen start attempts=$_listenAttempts locale=$_localeId');
       final completer = Completer<String?>();
       String buffer = '';
@@ -98,14 +98,14 @@ class _MobileSpeech implements SpeechService {
             _partialCtl.add(buffer);
             lastNonEmpty = buffer;
             _partials++;
-            print('MobileSTT: partial="$buffer"');
+            debugPrint('MobileSTT: partial="$buffer"');
           }
           if (res.finalResult) {
             _listening = false;
             final durMs = _listenStart != null
                 ? DateTime.now().difference(_listenStart!).inMilliseconds
                 : 0;
-            print(
+            debugPrint(
                 'MobileSTT: final="$lastNonEmpty" durationMs=$durMs partials=$_partials avgLevel=${_avgLevel.toStringAsFixed(1)}');
             completer.complete(lastNonEmpty.isNotEmpty ? lastNonEmpty : null);
           }
@@ -134,7 +134,7 @@ class _MobileSpeech implements SpeechService {
                   final durMs = _listenStart != null
                       ? DateTime.now().difference(_listenStart!).inMilliseconds
                       : 0;
-                  print(
+                  debugPrint(
                       'MobileSTT: stop due to silence durationMs=$durMs partials=$_partials avgLevel=${_avgLevel.toStringAsFixed(1)}');
                 }
               }
@@ -161,7 +161,7 @@ class _MobileSpeech implements SpeechService {
             final durMs = _listenStart != null
                 ? DateTime.now().difference(_listenStart!).inMilliseconds
                 : 0;
-            print(
+            debugPrint(
                 'MobileSTT: readiness probe failed durationMs=$durMs levelSamples=$_levelSamples avgLevel=${_avgLevel.toStringAsFixed(1)}');
             completer.complete(null);
           }
@@ -171,14 +171,14 @@ class _MobileSpeech implements SpeechService {
         final dur = _listenStart != null
             ? DateTime.now().difference(_listenStart!).inMilliseconds
             : 0;
-        print(
+        debugPrint(
             'MobileSTT: session end durationMs=$dur errors=$_errors attempts=$_listenAttempts');
         return value;
       });
     } catch (e) {
       _listening = false;
       _errors++;
-      print('MobileSTT: listen threw error=$e');
+      debugPrint('MobileSTT: listen threw error=$e');
       return null;
     }
   }

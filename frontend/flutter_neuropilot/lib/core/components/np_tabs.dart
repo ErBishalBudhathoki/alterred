@@ -15,7 +15,7 @@ class NpTabs extends StatelessWidget {
       unselectedLabelColor: Theme.of(context).colorScheme.onSurface,
       indicator: UnderlineTabIndicator(
         borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 3),
-        insets: EdgeInsets.symmetric(horizontal: DesignTokens.spacingLg),
+        insets: const EdgeInsets.symmetric(horizontal: DesignTokens.spacingLg),
       ),
     );
   }

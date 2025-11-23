@@ -43,15 +43,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await p.setInt('pulse_speed_ms', _pulseSpeedMs);
     await p.setInt('pulse_threshold_percent', _pulseThresholdPercent);
     await p.setDouble('pulse_max_freq', _pulseMaxFreq);
-    if (_pulseBaseColor != null) await p.setInt('pulse_base_color', _pulseBaseColor!);
-    if (_pulseAlertColor != null) await p.setInt('pulse_alert_color', _pulseAlertColor!);
+    if (_pulseBaseColor != null) {
+      await p.setInt('pulse_base_color', _pulseBaseColor!);
+    }
+    if (_pulseAlertColor != null) {
+      await p.setInt('pulse_alert_color', _pulseAlertColor!);
+    }
   }
 
   Future<void> _logout() async {
     final ctl = ref.read(authControllerProvider);
     await ctl.signOut();
     if (mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil(Routes.login, (route) => false);
+      Navigator.of(context)
+          .pushNamedAndRemoveUntil(Routes.login, (route) => false);
     }
   }
 
@@ -60,7 +65,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final l = AppLocalizations.of(context)!;
     final locale = ref.watch(localeProvider);
     final user = ref.watch(authUserProvider).value;
-    
+
     return Scaffold(
       appBar: NpAppBar(title: l.settingsTitle),
       body: Padding(
@@ -98,7 +103,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                               children: [
                                 Text(
                                   user.displayName ?? 'User',
-                                  style: Theme.of(context).textTheme.titleMedium,
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
                                 ),
                                 Text(
                                   user.email ?? '',
@@ -122,7 +128,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               const SizedBox(height: DesignTokens.spacingLg),
             ],
-            Text(l.languageLabel, style: Theme.of(context).textTheme.titleLarge),
+            Text(l.languageLabel,
+                style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: DesignTokens.spacingMd),
             RadioGroup<Locale>(
               groupValue: locale,
@@ -130,7 +137,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ref.read(localeProvider.notifier).state = v;
                 final p = await SharedPreferences.getInstance();
                 if (v != null) {
-                  await p.setString('locale_code', '${v.languageCode}${v.countryCode != null ? '_${v.countryCode}' : ''}');
+                  await p.setString('locale_code',
+                      '${v.languageCode}${v.countryCode != null ? '_${v.countryCode}' : ''}');
                 }
               },
               child: Column(
@@ -164,7 +172,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         max: 50,
                         divisions: 45,
                         value: _pulseThresholdPercent.toDouble(),
-                        onChanged: (v) => setState(() => _pulseThresholdPercent = v.round()),
+                        onChanged: (v) =>
+                            setState(() => _pulseThresholdPercent = v.round()),
                         onChangeEnd: (_) => _savePrefs(),
                       ),
                     ],
@@ -184,7 +193,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         max: 1500,
                         divisions: 12,
                         value: _pulseSpeedMs.toDouble(),
-                        onChanged: (v) => setState(() => _pulseSpeedMs = v.round()),
+                        onChanged: (v) =>
+                            setState(() => _pulseSpeedMs = v.round()),
                         onChangeEnd: (_) => _savePrefs(),
                       ),
                     ],
@@ -198,7 +208,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Max frequency: ${_pulseMaxFreq.toStringAsFixed(1)}x'),
+                      Text(
+                          'Max frequency: ${_pulseMaxFreq.toStringAsFixed(1)}x'),
                       Slider(
                         min: 1.0,
                         max: 4.0,
@@ -218,15 +229,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Base color'),
-                      DropdownButton<int?> (
+                      const Text('Base color'),
+                      DropdownButton<int?>(
                         value: _pulseBaseColor,
                         items: [
-                          DropdownMenuItem(value: null, child: const Text('Default')),
-                          DropdownMenuItem(value: Theme.of(context).colorScheme.primary.toARGB32(), child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.primary), const SizedBox(width:8), const Text('Primary')])),
-                          DropdownMenuItem(value: Theme.of(context).colorScheme.outline.toARGB32(), child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.outline), const SizedBox(width:8), const Text('Outline')])),
+                          const DropdownMenuItem(
+                              value: null, child: Text('Default')),
+                          DropdownMenuItem(
+                              value: Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .toARGB32(),
+                              child: Row(children: [
+                                Container(
+                                    width: 16,
+                                    height: 16,
+                                    color:
+                                        Theme.of(context).colorScheme.primary),
+                                const SizedBox(width: 8),
+                                const Text('Primary')
+                              ])),
+                          DropdownMenuItem(
+                              value: Theme.of(context)
+                                  .colorScheme
+                                  .outline
+                                  .toARGB32(),
+                              child: Row(children: [
+                                Container(
+                                    width: 16,
+                                    height: 16,
+                                    color:
+                                        Theme.of(context).colorScheme.outline),
+                                const SizedBox(width: 8),
+                                const Text('Outline')
+                              ])),
                         ],
-                        onChanged: (v) async { setState(() => _pulseBaseColor = v); await _savePrefs(); },
+                        onChanged: (v) async {
+                          setState(() => _pulseBaseColor = v);
+                          await _savePrefs();
+                        },
                       ),
                     ],
                   ),
@@ -236,15 +277,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Alert color'),
-                      DropdownButton<int?> (
+                      const Text('Alert color'),
+                      DropdownButton<int?>(
                         value: _pulseAlertColor,
                         items: [
-                          DropdownMenuItem(value: null, child: const Text('Default')),
-                          DropdownMenuItem(value: Theme.of(context).colorScheme.error.toARGB32(), child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.error), const SizedBox(width:8), const Text('Error')])),
-                          DropdownMenuItem(value: Theme.of(context).colorScheme.secondary.toARGB32(), child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.secondary), const SizedBox(width:8), const Text('Secondary')])),
+                          const DropdownMenuItem(
+                              value: null, child: Text('Default')),
+                          DropdownMenuItem(
+                              value: Theme.of(context)
+                                  .colorScheme
+                                  .error
+                                  .toARGB32(),
+                              child: Row(children: [
+                                Container(
+                                    width: 16,
+                                    height: 16,
+                                    color: Theme.of(context).colorScheme.error),
+                                const SizedBox(width: 8),
+                                const Text('Error')
+                              ])),
+                          DropdownMenuItem(
+                              value: Theme.of(context)
+                                  .colorScheme
+                                  .secondary
+                                  .toARGB32(),
+                              child: Row(children: [
+                                Container(
+                                    width: 16,
+                                    height: 16,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .secondary),
+                                const SizedBox(width: 8),
+                                const Text('Secondary')
+                              ])),
                         ],
-                        onChanged: (v) async { setState(() => _pulseAlertColor = v); await _savePrefs(); },
+                        onChanged: (v) async {
+                          setState(() => _pulseAlertColor = v);
+                          await _savePrefs();
+                        },
                       ),
                     ],
                   ),
@@ -254,7 +325,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             const SizedBox(height: DesignTokens.spacingSm),
             Align(
               alignment: Alignment.centerRight,
-              child: NpButton(label: 'Save', icon: Icons.save, onPressed: () async { await _savePrefs(); }),
+              child: NpButton(
+                  label: 'Save',
+                  icon: Icons.save,
+                  onPressed: () async {
+                    await _savePrefs();
+                  }),
             ),
           ],
         ),

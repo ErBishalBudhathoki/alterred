@@ -25,11 +25,35 @@ jobs:
       - name: Analyze
         working-directory: frontend/flutter_neuropilot
         run: flutter analyze
+
+      - name: Run tests with coverage
+        working-directory: frontend/flutter_neuropilot
+        run: flutter test --coverage
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: flutter-coverage-${{ github.ref_name }}
+          path: frontend/flutter_neuropilot/coverage/lcov.info
+      - name: Write Firebase Admin SA (for server-side steps)
+        if: ${{ secrets.FIREBASE_ADMIN_SA_JSON != '' }}
+        run: |
+          mkdir -p credentials
+          echo "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
+
+      - name: Analyze
+        working-directory: frontend/flutter_neuropilot
+        run: flutter analyze
         continue-on-error: true
 
       - name: Run tests
         working-directory: frontend/flutter_neuropilot
         run: flutter test
+
+      - name: Run web widget tests (Chrome)
+        working-directory: frontend/flutter_neuropilot
+        run: flutter test --platform chrome
+        continue-on-error: true
 
   build_web:
     runs-on: ubuntu-latest
@@ -46,9 +70,32 @@ jobs:
         working-directory: frontend/flutter_neuropilot
         run: flutter pub get
 
+      - name: Write Firebase Admin SA (optional)
+        if: ${{ secrets.FIREBASE_ADMIN_SA_JSON != '' }}
+        run: |
+          mkdir -p credentials
+          echo "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
+
       - name: Build Web
         working-directory: frontend/flutter_neuropilot
-        run: flutter build web --dart-define=FLUTTER_WEB_USE_SKIA=false
+        env:
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          FIREBASE_MEASUREMENT_ID: ${{ secrets.FIREBASE_MEASUREMENT_ID }}
+        run: |
+          flutter build web \
+            --dart-define=FLUTTER_WEB_USE_SKIA=false \
+            --dart-define=FIREBASE_API_KEY=${FIREBASE_API_KEY} \
+            --dart-define=FIREBASE_APP_ID=${FIREBASE_APP_ID} \
+            --dart-define=FIREBASE_MESSAGING_SENDER_ID=${FIREBASE_MESSAGING_SENDER_ID} \
+            --dart-define=FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID} \
+            --dart-define=FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN} \
+            --dart-define=FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET} \
+            --dart-define=FIREBASE_MEASUREMENT_ID=${FIREBASE_MEASUREMENT_ID}
 
       - name: Upload web artifact
         uses: actions/upload-artifact@v4
@@ -76,11 +123,81 @@ jobs:
         working-directory: frontend/flutter_neuropilot
         run: flutter pub get
 
+      - name: Write Firebase Admin SA (optional)
+        if: ${{ secrets.FIREBASE_ADMIN_SA_JSON != '' }}
+        run: |
+          mkdir -p credentials
+          echo "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
+
+  build_android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        working-directory: frontend/flutter_neuropilot
+        run: flutter pub get
+
+      - name: Write google-services.json for dev flavor
+        if: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_DEV != '' }}
+        run: |
+          mkdir -p frontend/flutter_neuropilot/android/app/src/development
+          echo "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_DEV }}" > frontend/flutter_neuropilot/android/app/src/development/google-services.json
+
+      - name: Write google-services.json for prod flavor
+        if: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_PROD != '' }}
+        run: |
+          mkdir -p frontend/flutter_neuropilot/android/app/src/production
+          echo "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_PROD }}" > frontend/flutter_neuropilot/android/app/src/production/google-services.json
+
+      - name: Build Android APK (development)
+        working-directory: frontend/flutter_neuropilot
+        run: flutter build apk --flavor development --debug
+
+      - name: Upload Android dev APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-development-${{ github.ref_name }}
+          path: frontend/flutter_neuropilot/build/app/outputs/flutter-apk/app-development-debug.apk
+
+      - name: Build Android APK (production)
+        working-directory: frontend/flutter_neuropilot
+        run: flutter build apk --flavor production --debug
+
+      - name: Upload Android prod APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk-production-${{ github.ref_name }}
+          path: frontend/flutter_neuropilot/build/app/outputs/flutter-apk/app-production-debug.apk
+
       - name: Build Web (env-specific)
         env:
           API_BASE_URL: ${{ vars.API_BASE_URL || 'http://localhost:8000' }}
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          FIREBASE_MEASUREMENT_ID: ${{ secrets.FIREBASE_MEASUREMENT_ID }}
         working-directory: frontend/flutter_neuropilot
-        run: flutter build web --dart-define=FLUTTER_WEB_USE_SKIA=false --dart-define API_BASE_URL=${API_BASE_URL}
+        run: |
+          flutter build web \
+            --dart-define=FLUTTER_WEB_USE_SKIA=false \
+            --dart-define=API_BASE_URL=${API_BASE_URL} \
+            --dart-define=FIREBASE_API_KEY=${FIREBASE_API_KEY} \
+            --dart-define=FIREBASE_APP_ID=${FIREBASE_APP_ID} \
+            --dart-define=FIREBASE_MESSAGING_SENDER_ID=${FIREBASE_MESSAGING_SENDER_ID} \
+            --dart-define=FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID} \
+            --dart-define=FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN} \
+            --dart-define=FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET} \
+            --dart-define=FIREBASE_MEASUREMENT_ID=${FIREBASE_MEASUREMENT_ID}
 
       - name: Install Playwright deps
         run: |

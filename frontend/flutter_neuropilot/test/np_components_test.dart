@@ -12,7 +12,7 @@ void main() {
     expect(find.text('Go'), findsOneWidget);
     await tester.tap(find.text('Go'));
     expect(pressed, isTrue);
-    await tester.pumpWidget(MaterialApp(home: Scaffold(body: NpButton(label: 'Go', loading: true))));
+    await tester.pumpWidget(const MaterialApp(home: Scaffold(body: NpButton(label: 'Go', loading: true))));
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 

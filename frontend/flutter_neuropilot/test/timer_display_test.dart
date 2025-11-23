@@ -68,8 +68,10 @@ void main() {
     await tester.pumpWidget(_buildApp(const chat.ChatScreen()));
     // Type a create command
     await tester.enterText(find.byType(TextField), 'set timer for 5 min');
-    await tester.tap(find.text('Send'));
-    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.text('Timers'));
+    await tester.pump(const Duration(milliseconds: 100));
 
     // Expect HM formatting
     expect(find.textContaining('Timer set for 00:05:00.'), findsOneWidget);
@@ -79,13 +81,15 @@ void main() {
   testWidgets('Completed timer fades out and disappears', (tester) async {
     await tester.pumpWidget(_buildApp(const chat.ChatScreen()));
     await tester.enterText(find.byType(TextField), 'set timer for 1 sec');
-    await tester.tap(find.text('Send'));
+    await tester.tap(find.byIcon(Icons.send));
     await tester.pump();
+    await tester.tap(find.text('Timers'));
+    await tester.pump(const Duration(milliseconds: 100));
     // Let ticker run for >1s
     await tester.pump(const Duration(seconds: 2));
     // Allow fade-out to complete
     await tester.pump(const Duration(milliseconds: 800));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 100));
     // No timer cards should remain
     expect(find.byKey(const ValueKey('timer-card-t1s')), findsNothing);
     expect(find.textContaining('Completed'), findsNothing);

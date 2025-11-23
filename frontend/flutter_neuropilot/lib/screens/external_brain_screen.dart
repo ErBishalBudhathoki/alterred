@@ -11,7 +11,8 @@ import '../core/components/np_snackbar.dart';
 class ExternalBrainScreen extends ConsumerStatefulWidget {
   const ExternalBrainScreen({super.key});
   @override
-  ConsumerState<ExternalBrainScreen> createState() => _ExternalBrainScreenState();
+  ConsumerState<ExternalBrainScreen> createState() =>
+      _ExternalBrainScreenState();
 }
 
 class _ExternalBrainScreenState extends ConsumerState<ExternalBrainScreen> {
@@ -40,19 +41,23 @@ class _ExternalBrainScreenState extends ConsumerState<ExternalBrainScreen> {
       body: Padding(
         padding: const EdgeInsets.all(DesignTokens.spacingLg),
         child: Column(children: [
-          NpTextField(controller: _transcript, label: l.transcriptLabel), 
+          NpTextField(controller: _transcript, label: l.transcriptLabel),
           const SizedBox(height: DesignTokens.spacingMd),
           NpButton(
             onPressed: () async {
               try {
                 final res = await api.captureExternal(_transcript.text);
+                if (!context.mounted) return;
                 setState(() => _taskId = res['task_id'] as String?);
                 try {
                   final list = await api.externalNotes();
+                  if (!context.mounted) return;
                   setState(() => _notes = list.cast<Map<String, dynamic>>());
                 } catch (_) {}
               } catch (e) {
-                NpSnackbar.show(context, '$e', type: NpSnackType.destructive);
+                if (context.mounted) {
+                  NpSnackbar.show(context, '$e', type: NpSnackType.destructive);
+                }
               }
             },
             label: l.capture,
@@ -62,16 +67,25 @@ class _ExternalBrainScreenState extends ConsumerState<ExternalBrainScreen> {
           const SizedBox(height: DesignTokens.spacingMd),
           if (_taskId != null) Text('Captured task: $_taskId'),
           const SizedBox(height: DesignTokens.spacingMd),
-          Row(children:[
-            Expanded(child: Text('Captured notes', style: Theme.of(context).textTheme.titleMedium)),
-            NpButton(label: 'Refresh', icon: Icons.refresh, type: NpButtonType.secondary, onPressed: () async {
-              try {
-                final list = await api.externalNotes();
-                setState(() => _notes = list.cast<Map<String, dynamic>>());
-              } catch (e) {
-                NpSnackbar.show(context, '$e', type: NpSnackType.warning);
-              }
-            }),
+          Row(children: [
+            Expanded(
+                child: Text('Captured notes',
+                    style: Theme.of(context).textTheme.titleMedium)),
+            NpButton(
+                label: 'Refresh',
+                icon: Icons.refresh,
+                type: NpButtonType.secondary,
+                onPressed: () async {
+                  try {
+                    final list = await api.externalNotes();
+                    if (!context.mounted) return;
+                    setState(() => _notes = list.cast<Map<String, dynamic>>());
+                  } catch (e) {
+                    if (context.mounted) {
+                      NpSnackbar.show(context, '$e', type: NpSnackType.warning);
+                    }
+                  }
+                }),
           ]),
           const SizedBox(height: DesignTokens.spacingSm),
           Expanded(

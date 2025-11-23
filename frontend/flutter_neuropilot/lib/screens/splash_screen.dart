@@ -1,7 +1,7 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/design_tokens.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../core/routes.dart';
 import '../state/auth_state.dart';
 
@@ -16,6 +16,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   late final AnimationController _ctl;
   late final Animation<double> _fade;
   bool _started = false;
+  bool _navigated = false;
 
   @override
   void initState() {
@@ -26,37 +27,29 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (_started) return;
       _started = true;
-      try {
-        final ok = await ref
-            .read(authInitializedProvider.future)
-            .timeout(const Duration(seconds: 3), onTimeout: () => false);
-        if (ok) {
-          try {
-            await ref
-                .read(idTokenSyncProvider.future)
-                .timeout(const Duration(seconds: 2));
-          } catch (_) {}
-
-          // Only check auth state after Firebase is initialized
-          await Future.delayed(const Duration(milliseconds: 2500));
-          if (!mounted) return;
-          final user = ref.read(authUserProvider).value;
-          final route = user != null ? Routes.chat : Routes.login;
-          Navigator.of(context).pushNamedAndRemoveUntil(route, (r) => false);
-        } else {
-          // Firebase init failed, go to login
-          await Future.delayed(const Duration(milliseconds: 2500));
-          if (!mounted) return;
+      ref.listen<AsyncValue<bool>>(authInitializedProvider, (prev, next) async {
+        if (_navigated || !mounted) return;
+        if (next.hasError) {
+          _navigated = true;
           Navigator.of(context)
               .pushNamedAndRemoveUntil(Routes.login, (r) => false);
+          return;
         }
-      } catch (_) {
-        // Error during init, go to login
-        await Future.delayed(const Duration(milliseconds: 2500));
-        if (!mounted) return;
-        Navigator.of(context)
-            .pushNamedAndRemoveUntil(Routes.login, (r) => false);
-      }
+        if (next.hasValue && next.value == true) {
+          try {
+            await ref.read(idTokenSyncProvider.future);
+          } catch (_) {}
+          ref.listen<AsyncValue<User?>>(authUserProvider, (p, n) {
+            if (_navigated || !mounted) return;
+            if (n.hasValue) {
+              final u = n.value;
+              _navigated = true;
+              Navigator.of(context).pushNamedAndRemoveUntil(
+                  u != null ? Routes.chat : Routes.login, (r) => false);
+            }
+          });
+        }
+      });
     });
   }
 

@@ -33,7 +33,8 @@ class _HealthScreenState extends ConsumerState<HealthScreen> {
           children: [
             Text('${l.baseUrlLabel}: $base'),
             const SizedBox(height: DesignTokens.spacingSm),
-            Text('${l.tokenLabel}: ${tok != null ? l.presentLabel : l.absentLabel}'),
+            Text(
+                '${l.tokenLabel}: ${tok != null ? l.presentLabel : l.absentLabel}'),
             const SizedBox(height: DesignTokens.spacingMd),
             NpButton(
               label: l.checkHealth,
@@ -42,14 +43,19 @@ class _HealthScreenState extends ConsumerState<HealthScreen> {
               onPressed: () async {
                 try {
                   final r = await api.health();
+                  if (!context.mounted) return;
                   setState(() => _health = r);
                 } catch (e) {
-                  NpSnackbar.show(context, '$e', type: NpSnackType.destructive);
+                  if (context.mounted) {
+                    NpSnackbar.show(context, '$e',
+                        type: NpSnackType.destructive);
+                  }
                 }
               },
             ),
             const SizedBox(height: DesignTokens.spacingMd),
-            if (_health != null) Text('${l.statusLabel}: ${_health!['status'] ?? _health}'),
+            if (_health != null)
+              Text('${l.statusLabel}: ${_health!['status'] ?? _health}'),
             const SizedBox(height: DesignTokens.spacingMd),
             NpButton(
               label: l.checkLatency,
@@ -60,14 +66,18 @@ class _HealthScreenState extends ConsumerState<HealthScreen> {
                   final t0 = DateTime.now();
                   await api.health();
                   final dt = DateTime.now().difference(t0).inMilliseconds;
+                  if (!context.mounted) return;
                   setState(() => _latencyMs = dt);
                 } catch (e) {
-                  NpSnackbar.show(context, '$e', type: NpSnackType.destructive);
+                  if (context.mounted) {
+                    NpSnackbar.show(context, '$e',
+                        type: NpSnackType.destructive);
+                  }
                 }
               },
             ),
             const SizedBox(height: DesignTokens.spacingSm),
-            if (_latencyMs != null) Text('${l.latencyLabel}: ${_latencyMs} ms'),
+            if (_latencyMs != null) Text('${l.latencyLabel}: $_latencyMs ms'),
             const SizedBox(height: DesignTokens.spacingMd),
             NpButton(
               label: l.checkMcp,
@@ -76,10 +86,17 @@ class _HealthScreenState extends ConsumerState<HealthScreen> {
               onPressed: () async {
                 try {
                   final r = await api.health();
-                  final ready = r['mcp_ready'] == true || r.containsKey('tools') || r.containsKey('calendar') || r.containsKey('mcp');
+                  final ready = r['mcp_ready'] == true ||
+                      r.containsKey('tools') ||
+                      r.containsKey('calendar') ||
+                      r.containsKey('mcp');
+                  if (!context.mounted) return;
                   setState(() => _mcpReady = ready);
                 } catch (e) {
-                  NpSnackbar.show(context, '$e', type: NpSnackType.destructive);
+                  if (context.mounted) {
+                    NpSnackbar.show(context, '$e',
+                        type: NpSnackType.destructive);
+                  }
                 }
               },
             ),

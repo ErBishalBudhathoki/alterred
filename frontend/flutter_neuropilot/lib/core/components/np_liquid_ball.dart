@@ -44,7 +44,7 @@ class _NpLiquidBallState extends State<NpLiquidBall>
       NpLiquidMode.listening => cs.primary,
       NpLiquidMode.processing => cs.tertiary,
       NpLiquidMode.speaking => cs.secondary,
-      _ => cs.surfaceVariant,
+      _ => cs.surfaceContainerHighest,
     };
     return RepaintBoundary(
       child: AnimatedBuilder(
@@ -81,7 +81,7 @@ class _LiquidPainter extends CustomPainter {
     final r = size.width / 2;
     final c = Offset(r, r);
     final path = Path();
-    final steps = 64;
+    const steps = 64;
     for (int i = 0; i <= steps; i++) {
       final a = (i / steps) * 2 * math.pi;
       final wobble = (1 +
@@ -99,10 +99,10 @@ class _LiquidPainter extends CustomPainter {
     }
     path.close();
     final paint = Paint()
-      ..color = color.withOpacity(0.7)
+      ..color = color.withValues(alpha: 0.7)
       ..style = PaintingStyle.fill;
     final stroke = Paint()
-      ..color = color.withOpacity(0.9)
+      ..color = color.withValues(alpha: 0.9)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
     canvas.drawPath(path, paint);

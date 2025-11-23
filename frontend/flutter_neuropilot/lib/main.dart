@@ -2,16 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_neuropilot/l10n/app_localizations.dart';
-import 'package:firebase_core/firebase_core.dart';
 
 import 'core/routes.dart';
+import 'core/firebase_env.dart';
 import 'core/design_tokens.dart';
 import 'state/session_state.dart';
-import 'state/auth_state.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  await initFirebase();
   runApp(const ProviderScope(child: NeuroPilotApp()));
 }
 

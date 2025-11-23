@@ -18,10 +18,15 @@ val localProps = Properties().apply {
 }
 
 val credsDir = localProps.getProperty("credentials.dir") ?: "../../credentials"
+val devGoogleServicesDefault = "$credsDir/google-services-dev.json"
+val prodGoogleServicesDefault = "$credsDir/google-services-prod.json"
+val anyGoogleServicesFallback = file(credsDir).listFiles()
+    ?.firstOrNull { it.name.startsWith("google-services") && it.extension == "json" }?.path
+
 val devGoogleServices = localProps.getProperty("firebase.google_services.dev")
-    ?: "$credsDir/google-services-dev.json"
+    ?: (if (file(devGoogleServicesDefault).exists()) devGoogleServicesDefault else anyGoogleServicesFallback ?: devGoogleServicesDefault)
 val prodGoogleServices = localProps.getProperty("firebase.google_services.prod")
-    ?: "$credsDir/google-services-prod.json"
+    ?: (if (file(prodGoogleServicesDefault).exists()) prodGoogleServicesDefault else anyGoogleServicesFallback ?: prodGoogleServicesDefault)
 
 tasks.register<Copy>("copyGoogleServicesDev") {
     val src = file(devGoogleServices)

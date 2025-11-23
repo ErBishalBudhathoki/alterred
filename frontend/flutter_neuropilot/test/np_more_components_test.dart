@@ -50,7 +50,7 @@ void main() {
           child: Column(children: [
             NpSwitch(value: s, onChanged: (v) => s = v),
             NpCheckbox(value: c, onChanged: (v) => c = v ?? false),
-            NpRadio<String>(value: 'a'),
+            const NpRadio<String>(value: 'a'),
           ]),
         ),
       ),
