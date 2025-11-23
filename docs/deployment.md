@@ -9,7 +9,7 @@
 - Build and push:
   - `gcloud builds submit --tag gcr.io/$PROJECT_ID/neuropilot-api`
 - Deploy:
-  - `gcloud run deploy neuropilot-api --image gcr.io/$PROJECT_ID/neuropilot-api --region us-central1 --allow-unauthenticated --set-env-vars "GOOGLE_API_KEY=<key>,DEFAULT_MODEL=gemini-2.5-flash"`
+  - `gcloud run deploy neuropilot-api --image gcr.io/$PROJECT_ID/neuropilot-api --region australia-southeast1 --allow-unauthenticated --set-env-vars "GOOGLE_API_KEY=<key>,DEFAULT_MODEL=gemini-2.5-flash"`
 
 ## Requirements
 - `requirements.txt` lists Python dependencies

@@ -153,7 +153,7 @@ adk --version
 GOOGLE_GENAI_USE_VERTEXAI=FALSE  # TRUE if using Vertex AI
 GOOGLE_API_KEY=your_api_key_here
 GOOGLE_CLOUD_PROJECT=neuropilot-capstone
-GOOGLE_CLOUD_LOCATION=us-central1
+GOOGLE_CLOUD_LOCATION=australia-southeast1
 MODEL=gemini-2.0-flash-001
 ```
 

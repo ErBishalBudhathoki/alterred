@@ -2993,7 +2993,7 @@ docker build -t neuropilot-api .
 gcloud run deploy neuropilot-api \
   --image gcr.io/PROJECT_ID/neuropilot-api \
   --platform managed \
-  --region us-central1 \
+  --region australia-southeast1 \
   --allow-unauthenticated \
   --set-env-vars="GOOGLE_CLOUD_PROJECT=PROJECT_ID"
 
@@ -3001,7 +3001,7 @@ gcloud run deploy neuropilot-api \
 adk deploy \
   --agent coordinator_agent \
   --project PROJECT_ID \
-  --region us-central1
+  --region australia-southeast1
 ```
 
 ---
