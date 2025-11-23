@@ -26,13 +26,13 @@ class _WebTts implements TtsService {
     utterance.volume = _volume;
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
-    utterance.onstart = ((web.Event _) {
+    utterance.onstart = ((web.Event e) {
       _speakingCtl.add(true);
     }).toJS;
-    utterance.onend = ((web.Event _) {
+    utterance.onend = ((web.Event e) {
       _speakingCtl.add(false);
     }).toJS;
-    utterance.onerror = ((web.Event _) {
+    utterance.onerror = ((web.Event e) {
       _speakingCtl.add(false);
     }).toJS;
     _speakingCtl.add(true);
