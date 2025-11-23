@@ -42,5 +42,40 @@ jobs:
           allow_unauthenticated: true
           env_vars: |
             PYTHONUNBUFFERED=1
+            FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }}
+          memory: 1Gi
+          cpu: 1
+          concurrency: 80
+          min_instances: 1
+          max_instances: 10
+          timeout: 300
+          vpc_connector: serverless-connector
+          service_account: cloud-run-neuropilot@${{ env.PROJECT_ID }}.iam.gserviceaccount.com
       - name: Output URL
         run: echo "Service URL: ${{ steps.deploy.outputs.url }}"
+
+      - name: E2E health check
+        shell: bash
+        run: |
+          URL="${{ steps.deploy.outputs.url }}"
+          echo "Checking ${URL}/health"
+          sleep 10
+          http_code=$(curl -s -o /dev/null -w "%{http_code}" "${URL}/health")
+          if [ "$http_code" != "200" ]; then
+            echo "Health check failed with HTTP $http_code" && exit 1
+          fi
+          echo "Health check passed"
+
+      - name: Create/update uptime check
+        shell: bash
+        run: |
+          URL="${{ steps.deploy.outputs.url }}"
+          NAME="neuropilot-api-uptime"
+          gcloud services enable monitoring.googleapis.com || true
+          gcloud monitoring uptime-checks describe "$NAME" && EXISTS=1 || EXISTS=0
+          if [ "$EXISTS" -eq 1 ]; then
+            gcloud monitoring uptime-checks update "$NAME" --path="/health" --checker-type=STATIC_IP --http-check "$(echo $URL | sed 's#https://##g')"
+          else
+            HOST=$(echo $URL | sed 's#https://##g')
+            gcloud monitoring uptime-checks create http "$NAME" --host="$HOST" --path="/health" --display-name="Neuropilot API Uptime"
+          fi

@@ -1,0 +1,36 @@
+name: Cloud Run Performance (Sydney)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.REGION }}
+      SERVICE: neuropilot-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.WIF_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+      - name: Resolve service URL
+        id: runurl
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
+          echo "url=$URL" >> $GITHUB_OUTPUT
+      - name: Install bombardier
+        run: |
+          sudo apt-get update && sudo apt-get install -y golang-go
+          go install github.com/codesenberg/bombardier@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+      - name: Run benchmark
+        run: |
+          URL="${{ steps.runurl.outputs.url }}"
+          echo "Target: $URL"
+          "$HOME/go/bin/bombardier" -c 50 -n 500 "$URL/health"

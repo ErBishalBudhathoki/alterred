@@ -18,14 +18,20 @@ jobs:
       - run: flutter pub get
         working-directory: frontend/flutter_neuropilot
       - run: |
+          FIREBASE_API_KEY="${{ secrets.FIREBASE_API_KEY }}"
+          FIREBASE_APP_ID="${{ secrets.FIREBASE_APP_ID }}"
+          FIREBASE_MESSAGING_SENDER_ID="${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}"
+          FIREBASE_PROJECT_ID="${{ secrets.FIREBASE_PROJECT_ID }}"
+          AUTH_DOMAIN="${FIREBASE_PROJECT_ID}.firebaseapp.com"
+          STORAGE_BUCKET="${FIREBASE_PROJECT_ID}.firebasestorage.app"
           flutter build web --release \
             --dart-define=API_BASE_URL=/api \
-            --dart-define=FIREBASE_API_KEY=AIzaSyAJLKL_cROVl7fOJsO1oZuOKDhjzf36O8w \
-            --dart-define=FIREBASE_APP_ID=1:848026269314:web:496ec795532a3b8363269b \
-            --dart-define=FIREBASE_MESSAGING_SENDER_ID=848026269314 \
-            --dart-define=FIREBASE_PROJECT_ID=neuropilot-23fb5 \
-            --dart-define=FIREBASE_AUTH_DOMAIN=neuropilot-23fb5.firebaseapp.com \
-            --dart-define=FIREBASE_STORAGE_BUCKET=neuropilot-23fb5.firebasestorage.app
+            --dart-define=FIREBASE_API_KEY=${FIREBASE_API_KEY} \
+            --dart-define=FIREBASE_APP_ID=${FIREBASE_APP_ID} \
+            --dart-define=FIREBASE_MESSAGING_SENDER_ID=${FIREBASE_MESSAGING_SENDER_ID} \
+            --dart-define=FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID} \
+            --dart-define=FIREBASE_AUTH_DOMAIN=${AUTH_DOMAIN} \
+            --dart-define=FIREBASE_STORAGE_BUCKET=${STORAGE_BUCKET}
         working-directory: frontend/flutter_neuropilot
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
@@ -34,3 +40,13 @@ jobs:
           projectId: "neuropilot-23fb5"
           channelId: live
           entryPoint: .
+      - name: Hosting rewrite smoke test
+        shell: bash
+        run: |
+          DOMAIN=${{ vars.FIREBASE_HOSTING_DOMAIN || 'neuropilot-23fb5.web.app' }}
+          echo "Testing https://${DOMAIN}/api/health"
+          code=$(curl -s -o /dev/null -w "%{http_code}" "https://${DOMAIN}/api/health")
+          if [ "$code" != "200" ]; then
+            echo "Health endpoint behind Hosting unavailable (HTTP $code)" && exit 1
+          fi
+          echo "Hosting rewrite OK"
