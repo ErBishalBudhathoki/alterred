@@ -8,6 +8,39 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+import java.util.Properties
+
+val localProps = Properties().apply {
+    val f = file("../local.properties")
+    if (f.exists()) {
+        f.inputStream().use { load(it) }
+    }
+}
+
+val credsDir = localProps.getProperty("credentials.dir") ?: "../../credentials"
+val devGoogleServices = localProps.getProperty("firebase.google_services.dev")
+    ?: "$credsDir/google-services-dev.json"
+val prodGoogleServices = localProps.getProperty("firebase.google_services.prod")
+    ?: "$credsDir/google-services-prod.json"
+
+tasks.register<Copy>("copyGoogleServicesDev") {
+    val src = file(devGoogleServices)
+    if (src.exists()) {
+        from(src)
+        into("src/development")
+        rename { "google-services.json" }
+    }
+}
+
+tasks.register<Copy>("copyGoogleServicesProd") {
+    val src = file(prodGoogleServices)
+    if (src.exists()) {
+        from(src)
+        into("src/production")
+        rename { "google-services.json" }
+    }
+}
+
 android {
     namespace = "com.bishal.altered"
     compileSdk = flutter.compileSdkVersion
@@ -55,4 +88,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("copyGoogleServicesDev")
+    dependsOn("copyGoogleServicesProd")
 }

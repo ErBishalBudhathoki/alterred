@@ -45,7 +45,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           type: NpSnackType.destructive);
       return;
     }
-    Navigator.of(context).pushReplacementNamed(Routes.chat);
+    Navigator.of(context).pushNamedAndRemoveUntil(Routes.chat, (r) => false);
   }
 
   Future<void> _google() async {
@@ -58,7 +58,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           type: NpSnackType.warning);
       return;
     }
-    Navigator.of(context).pushReplacementNamed(Routes.chat);
+    Navigator.of(context).pushNamedAndRemoveUntil(Routes.chat, (r) => false);
   }
 
   Future<void> _reset() async {

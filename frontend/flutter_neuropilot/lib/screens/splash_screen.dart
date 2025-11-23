@@ -36,24 +36,26 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                 .read(idTokenSyncProvider.future)
                 .timeout(const Duration(seconds: 2));
           } catch (_) {}
-          
+
           // Only check auth state after Firebase is initialized
           await Future.delayed(const Duration(milliseconds: 2500));
           if (!mounted) return;
           final user = ref.read(authUserProvider).value;
           final route = user != null ? Routes.chat : Routes.login;
-          Navigator.of(context).pushReplacementNamed(route);
+          Navigator.of(context).pushNamedAndRemoveUntil(route, (r) => false);
         } else {
           // Firebase init failed, go to login
           await Future.delayed(const Duration(milliseconds: 2500));
           if (!mounted) return;
-          Navigator.of(context).pushReplacementNamed(Routes.login);
+          Navigator.of(context)
+              .pushNamedAndRemoveUntil(Routes.login, (r) => false);
         }
       } catch (_) {
         // Error during init, go to login
         await Future.delayed(const Duration(milliseconds: 2500));
         if (!mounted) return;
-        Navigator.of(context).pushReplacementNamed(Routes.login);
+        Navigator.of(context)
+            .pushNamedAndRemoveUntil(Routes.login, (r) => false);
       }
     });
   }

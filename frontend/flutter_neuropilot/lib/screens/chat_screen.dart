@@ -136,6 +136,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return Scaffold(
       appBar: NpAppBar(
         title: l.chatTitle,
+        showBack: false,
         actions: [
           // Body Double Toggle
           Row(

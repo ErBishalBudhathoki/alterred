@@ -4,11 +4,13 @@ import '../design_tokens.dart';
 class NpAppBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final List<Widget>? actions;
-  const NpAppBar({super.key, required this.title, this.actions});
+  final bool showBack;
+  const NpAppBar({super.key, required this.title, this.actions, this.showBack = true});
 
   @override
   Widget build(BuildContext context) {
     return AppBar(
+      automaticallyImplyLeading: showBack,
       title: Text(title, style: Theme.of(context).textTheme.titleLarge),
       actions: actions
           ?.map((w) => Padding(

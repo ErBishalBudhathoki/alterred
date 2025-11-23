@@ -67,7 +67,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
           type: NpSnackType.destructive);
       return;
     }
-    Navigator.of(context).pushReplacementNamed(Routes.chat);
+    Navigator.of(context).pushNamedAndRemoveUntil(Routes.chat, (r) => false);
   }
 
   @override
