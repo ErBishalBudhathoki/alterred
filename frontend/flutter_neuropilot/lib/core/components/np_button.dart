@@ -22,7 +22,7 @@ class NpButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final bg = switch (type) {
       NpButtonType.primary => DesignTokens.primary,
-      NpButtonType.secondary => DesignTokens.surface,
+      NpButtonType.secondary => DesignTokens.background,
       NpButtonType.success => DesignTokens.success,
       NpButtonType.warning => DesignTokens.warning,
       NpButtonType.destructive => DesignTokens.error,

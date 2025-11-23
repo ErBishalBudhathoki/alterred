@@ -147,6 +147,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get suggestionsLabel => 'Suggestions';
 
   @override
+  String get advancedToolsLabel => 'Advanced tools';
+
+  @override
   String get suggestAtomize => 'Atomize task';
 
   @override
@@ -181,4 +184,10 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get exampleOverview => 'What is planned for today?';
+
+  @override
+  String get focusModeLabel => 'Focus Mode';
+
+  @override
+  String get minimalModeLabel => 'Minimal Mode';
 }

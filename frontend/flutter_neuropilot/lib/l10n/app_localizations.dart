@@ -374,6 +374,12 @@ abstract class AppLocalizations {
   /// **'Suggestions'**
   String get suggestionsLabel;
 
+  /// No description provided for @advancedToolsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Advanced tools'**
+  String get advancedToolsLabel;
+
   /// No description provided for @suggestAtomize.
   ///
   /// In en, this message translates to:
@@ -445,6 +451,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'What is planned for today?'**
   String get exampleOverview;
+
+  /// No description provided for @focusModeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Focus Mode'**
+  String get focusModeLabel;
+
+  /// No description provided for @minimalModeLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Minimal Mode'**
+  String get minimalModeLabel;
 }
 
 class _AppLocalizationsDelegate

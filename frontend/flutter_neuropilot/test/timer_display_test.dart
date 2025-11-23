@@ -85,8 +85,9 @@ void main() {
     await tester.pump(const Duration(seconds: 2));
     // Allow fade-out to complete
     await tester.pump(const Duration(milliseconds: 800));
+    await tester.pumpAndSettle();
     // No timer cards should remain
-    expect(find.byIcon(Icons.timer), findsNothing);
+    expect(find.byKey(const ValueKey('timer-card-t1s')), findsNothing);
     expect(find.textContaining('Completed'), findsNothing);
   });
 }

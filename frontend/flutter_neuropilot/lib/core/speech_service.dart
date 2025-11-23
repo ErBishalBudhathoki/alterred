@@ -7,6 +7,7 @@ abstract class SpeechService {
   Future<String?> startOnce();
   Future<void> stop();
   Stream<String> get partialUpdates;
+  Stream<double> get levelUpdates;
 }
 
 SpeechService createSpeechService() => createSpeechServiceImpl();

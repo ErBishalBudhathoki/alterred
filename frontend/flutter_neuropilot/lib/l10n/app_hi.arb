@@ -49,6 +49,7 @@
   "voiceToggleLabel": "वॉइस",
   "recordTranscriptLabel": "अपना वॉइस ट्रांसक्रिप्ट लिखें/पेस्ट करें",
   "suggestionsLabel": "सुझाव",
+  "advancedToolsLabel": "उन्नत उपकरण",
   "suggestAtomize": "कार्य तोड़ें",
   "suggestCountdown": "काउंटडाउन सेट करें",
   "suggestReduce": "विकल्प कम करें",
@@ -60,5 +61,7 @@
   "exampleReduce": "Reduce: A, B, C, D",
   "exampleEnergyMatch": "Energy match: ईमेल, कोड, समीक्षा",
   "exampleCapture": "Capture: टीम से मिले; फॉलो-अप",
-  "exampleOverview": "आज क्या प्लान है?"
+  "exampleOverview": "आज क्या प्लान है?",
+  "focusModeLabel": "फोकस मोड",
+  "minimalModeLabel": "मिनिमल मोड"
 }

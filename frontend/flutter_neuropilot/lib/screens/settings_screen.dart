@@ -5,6 +5,8 @@ import '../core/components/np_app_bar.dart';
 import '../core/components/np_button.dart';
 import '../core/design_tokens.dart';
 import '../state/session_state.dart';
+import '../state/auth_state.dart';
+import '../core/routes.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -45,10 +47,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (_pulseAlertColor != null) await p.setInt('pulse_alert_color', _pulseAlertColor!);
   }
 
+  Future<void> _logout() async {
+    final ctl = ref.read(authControllerProvider);
+    await ctl.signOut();
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(Routes.login, (route) => false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
     final locale = ref.watch(localeProvider);
+    final user = ref.watch(authUserProvider).value;
+    
     return Scaffold(
       appBar: NpAppBar(title: l.settingsTitle),
       body: Padding(
@@ -56,6 +68,60 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // User Profile Section
+            if (user != null) ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(DesignTokens.spacingMd),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 30,
+                            backgroundImage: user.photoURL != null
+                                ? NetworkImage(user.photoURL!)
+                                : null,
+                            child: user.photoURL == null
+                                ? Text(
+                                    user.displayName?.isNotEmpty == true
+                                        ? user.displayName![0].toUpperCase()
+                                        : user.email![0].toUpperCase(),
+                                    style: const TextStyle(fontSize: 24))
+                                : null,
+                          ),
+                          const SizedBox(width: DesignTokens.spacingMd),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  user.displayName ?? 'User',
+                                  style: Theme.of(context).textTheme.titleMedium,
+                                ),
+                                Text(
+                                  user.email ?? '',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: DesignTokens.spacingMd),
+                      NpButton(
+                        label: 'Logout',
+                        icon: Icons.logout,
+                        type: NpButtonType.destructive,
+                        onPressed: _logout,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: DesignTokens.spacingLg),
+            ],
             Text(l.languageLabel, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: DesignTokens.spacingMd),
             RadioGroup<Locale>(
@@ -157,8 +223,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         value: _pulseBaseColor,
                         items: [
                           DropdownMenuItem(value: null, child: const Text('Default')),
-                          DropdownMenuItem(value: Theme.of(context).colorScheme.primary.value, child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.primary), const SizedBox(width:8), const Text('Primary')])),
-                          DropdownMenuItem(value: Theme.of(context).colorScheme.outline.value, child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.outline), const SizedBox(width:8), const Text('Outline')])),
+                          DropdownMenuItem(value: Theme.of(context).colorScheme.primary.toARGB32(), child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.primary), const SizedBox(width:8), const Text('Primary')])),
+                          DropdownMenuItem(value: Theme.of(context).colorScheme.outline.toARGB32(), child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.outline), const SizedBox(width:8), const Text('Outline')])),
                         ],
                         onChanged: (v) async { setState(() => _pulseBaseColor = v); await _savePrefs(); },
                       ),
@@ -175,8 +241,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         value: _pulseAlertColor,
                         items: [
                           DropdownMenuItem(value: null, child: const Text('Default')),
-                          DropdownMenuItem(value: Theme.of(context).colorScheme.error.value, child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.error), const SizedBox(width:8), const Text('Error')])),
-                          DropdownMenuItem(value: Theme.of(context).colorScheme.secondary.value, child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.secondary), const SizedBox(width:8), const Text('Secondary')])),
+                          DropdownMenuItem(value: Theme.of(context).colorScheme.error.toARGB32(), child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.error), const SizedBox(width:8), const Text('Error')])),
+                          DropdownMenuItem(value: Theme.of(context).colorScheme.secondary.toARGB32(), child: Row(children:[Container(width:16,height:16,color:Theme.of(context).colorScheme.secondary), const SizedBox(width:8), const Text('Secondary')])),
                         ],
                         onChanged: (v) async { setState(() => _pulseAlertColor = v); await _savePrefs(); },
                       ),

@@ -49,6 +49,7 @@
   "voiceToggleLabel": "Voice",
   "recordTranscriptLabel": "Paste or type your voice transcript",
   "suggestionsLabel": "Suggestions",
+  "advancedToolsLabel": "Advanced tools",
   "suggestAtomize": "Atomize task",
   "suggestCountdown": "Set countdown",
   "suggestReduce": "Reduce options",
@@ -60,5 +61,7 @@
   "exampleReduce": "Reduce: A, B, C, D",
   "exampleEnergyMatch": "Energy match: email, code, review",
   "exampleCapture": "Capture: Met with team; follow-ups",
-  "exampleOverview": "What is planned for today?"
+  "exampleOverview": "What is planned for today?",
+  "focusModeLabel": "Focus Mode",
+  "minimalModeLabel": "Minimal Mode"
 }

@@ -9,6 +9,8 @@ class _WebSpeech implements SpeechService {
   bool _running = false;
   final StreamController<String> _partialCtl =
       StreamController<String>.broadcast();
+  final StreamController<double> _levelCtl =
+      StreamController<double>.broadcast();
 
   @override
   bool get supported {
@@ -88,6 +90,7 @@ class _WebSpeech implements SpeechService {
         'onspeechend'.toJS,
         (JSAny _) {
           print('WebSpeech: onspeechend');
+          _levelCtl.add(0.0);
           if (_running) {
             _running = false;
             try {
@@ -105,9 +108,10 @@ class _WebSpeech implements SpeechService {
         'onerror'.toJS,
         (JSAny event) {
           try {
-            final err = (event as JSObject).getProperty<JSAny>('error'.toJS).dartify();
-            final hasMsg = (event as JSObject).hasProperty('message'.toJS).toDart;
-            final msg = hasMsg ? (event as JSObject).getProperty<JSAny>('message'.toJS).dartify() : null;
+            final ev = event as JSObject;
+            final err = ev.getProperty<JSAny>('error'.toJS).dartify();
+            final hasMsg = ev.hasProperty('message'.toJS).toDart;
+            final msg = hasMsg ? ev.getProperty<JSAny>('message'.toJS).dartify() : null;
             print('WebSpeech: onerror error=${err?.toString()} message=${msg?.toString()}');
           } catch (_) {
             print('WebSpeech: onerror (details unavailable)');
@@ -120,6 +124,7 @@ class _WebSpeech implements SpeechService {
         }.toJS);
     print('WebSpeech: start');
     _rec!.callMethod('start'.toJS);
+    _levelCtl.add(0.2);
     Timer(const Duration(seconds: 60), () {
       if (!c.isCompleted) {
         print('WebSpeech: timeout reached, stopping');
@@ -142,10 +147,13 @@ class _WebSpeech implements SpeechService {
         _rec!.callMethod('stop'.toJS);
       }
     } catch (_) {}
+    _levelCtl.add(0.0);
   }
 
   @override
   Stream<String> get partialUpdates => _partialCtl.stream;
+  @override
+  Stream<double> get levelUpdates => _levelCtl.stream;
 }
 
 SpeechService createSpeechServiceImpl() => _WebSpeech();

@@ -148,6 +148,9 @@ class AppLocalizationsHi extends AppLocalizations {
   String get suggestionsLabel => 'सुझाव';
 
   @override
+  String get advancedToolsLabel => 'उन्नत उपकरण';
+
+  @override
   String get suggestAtomize => 'कार्य तोड़ें';
 
   @override
@@ -182,4 +185,10 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get exampleOverview => 'आज क्या प्लान है?';
+
+  @override
+  String get focusModeLabel => 'फोकस मोड';
+
+  @override
+  String get minimalModeLabel => 'मिनिमल मोड';
 }

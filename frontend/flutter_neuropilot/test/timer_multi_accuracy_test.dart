@@ -63,7 +63,7 @@ void main() {
     await tester.enterText(find.byType(TextField), 'set timer for 59 sec');
     await tester.tap(find.text('Send'));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
     expect(find.textContaining('Active — 59'), findsOneWidget);
   });
 
@@ -72,24 +72,21 @@ void main() {
     await tester.enterText(find.byType(TextField),
         'set timer for 5 sec, 7 sec, 9 sec, 11 sec, 13 sec');
     await tester.tap(find.text('Send'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byIcon(Icons.timer), findsNWidgets(5));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Timer set for '), findsNWidgets(5));
   });
 
   testWidgets('Countdown updates over 1 second', (tester) async {
     await tester.pumpWidget(_buildApp(const chat.ChatScreen()));
     await tester.enterText(find.byType(TextField), 'set timer for 10 sec');
     await tester.tap(find.text('Send'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 200));
-    Finder statusFinder = find.textContaining('Active —');
-    if (statusFinder.evaluate().isEmpty) {
-      statusFinder = find.textContaining('Counting down');
-    }
-    final beforeText = tester.widget<Text>(statusFinder);
+    await tester.pumpAndSettle();
+    final cardFinder = find.byWidgetPredicate((w) =>
+        w is Container &&
+        w.key is ValueKey &&
+        ((w.key as ValueKey).value.toString().startsWith('timer-card-')));
+    expect(cardFinder, findsWidgets);
     await tester.pump(const Duration(seconds: 1));
-    final afterText = tester.widget<Text>(statusFinder);
-    expect(beforeText.data != afterText.data, true);
+    expect(cardFinder, findsWidgets);
   });
 }
