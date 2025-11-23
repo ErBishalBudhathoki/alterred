@@ -17,7 +17,15 @@ jobs:
           channel: stable
       - run: flutter pub get
         working-directory: frontend/flutter_neuropilot
-      - run: flutter build web --release --dart-define=API_BASE_URL=/api
+      - run: |
+          flutter build web --release \
+            --dart-define=API_BASE_URL=/api \
+            --dart-define=FIREBASE_API_KEY=AIzaSyAJLKL_cROVl7fOJsO1oZuOKDhjzf36O8w \
+            --dart-define=FIREBASE_APP_ID=1:848026269314:web:496ec795532a3b8363269b \
+            --dart-define=FIREBASE_MESSAGING_SENDER_ID=848026269314 \
+            --dart-define=FIREBASE_PROJECT_ID=neuropilot-23fb5 \
+            --dart-define=FIREBASE_AUTH_DOMAIN=neuropilot-23fb5.firebaseapp.com \
+            --dart-define=FIREBASE_STORAGE_BUCKET=neuropilot-23fb5.firebasestorage.app
         working-directory: frontend/flutter_neuropilot
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
