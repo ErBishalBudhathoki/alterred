@@ -17,21 +17,20 @@ jobs:
           channel: stable
       - run: flutter pub get
         working-directory: frontend/flutter_neuropilot
-      - run: |
-          FIREBASE_API_KEY="${{ secrets.FIREBASE_API_KEY }}"
-          FIREBASE_APP_ID="${{ secrets.FIREBASE_APP_ID }}"
-          FIREBASE_MESSAGING_SENDER_ID="${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}"
-          FIREBASE_PROJECT_ID="${{ secrets.FIREBASE_PROJECT_ID }}"
-          AUTH_DOMAIN="${FIREBASE_PROJECT_ID}.firebaseapp.com"
-          STORAGE_BUCKET="${FIREBASE_PROJECT_ID}.firebasestorage.app"
-          flutter build web --release \
-            --dart-define=API_BASE_URL=/api \
+      - name: Build Flutter Web
+        env:
+          API_BASE_URL: /api
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+        run: |
+          flutter build web --release -t lib/main.dart \
+            --dart-define=API_BASE_URL=${API_BASE_URL} \
             --dart-define=FIREBASE_API_KEY=${FIREBASE_API_KEY} \
             --dart-define=FIREBASE_APP_ID=${FIREBASE_APP_ID} \
             --dart-define=FIREBASE_MESSAGING_SENDER_ID=${FIREBASE_MESSAGING_SENDER_ID} \
-            --dart-define=FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID} \
-            --dart-define=FIREBASE_AUTH_DOMAIN=${AUTH_DOMAIN} \
-            --dart-define=FIREBASE_STORAGE_BUCKET=${STORAGE_BUCKET}
+            --dart-define=FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
         working-directory: frontend/flutter_neuropilot
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
