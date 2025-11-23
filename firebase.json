@@ -82,13 +82,6 @@
     ],
     "rewrites": [
       {
-        "source": "/api/**",
-        "run": {
-          "serviceId": "neuropilot-api",
-          "region": "australia-southeast1"
-        }
-      },
-      {
         "source": "**",
         "destination": "/index.html"
       }
