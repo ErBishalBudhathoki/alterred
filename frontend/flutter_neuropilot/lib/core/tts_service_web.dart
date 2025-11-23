@@ -22,21 +22,21 @@ class _WebTts implements TtsService {
   @override
   Future<void> speak(String text) async {
     final synth = web.window.speechSynthesis;
-    final utter = web.SpeechSynthesisUtterance(text);
-    utter.volume = _volume;
-    utter.rate = 1.0;
-    utter.pitch = 1.0;
-    utter.onstart = ((web.Event _) {
+    final utterance = web.SpeechSynthesisUtterance(text);
+    utterance.volume = _volume;
+    utterance.rate = 1.0;
+    utterance.pitch = 1.0;
+    utterance.onstart = ((web.Event _) {
       _speakingCtl.add(true);
     }).toJS;
-    utter.onend = ((web.Event _) {
+    utterance.onend = ((web.Event _) {
       _speakingCtl.add(false);
     }).toJS;
-    utter.onerror = ((web.Event _) {
+    utterance.onerror = ((web.Event _) {
       _speakingCtl.add(false);
     }).toJS;
     _speakingCtl.add(true);
-    synth.speak(utter);
+    synth.speak(utterance);
   }
 
   @override
