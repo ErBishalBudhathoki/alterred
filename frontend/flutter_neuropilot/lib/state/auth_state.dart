@@ -21,6 +21,21 @@ final idTokenSyncProvider = FutureProvider<void>((ref) async {
   ref.read(tokenProvider.notifier).state = tok;
 });
 
+final navigationProvider = FutureProvider<String>((ref) async {
+  final isInitialized = await ref.watch(authInitializedProvider.future);
+  if (!isInitialized) {
+    return '/login';
+  }
+
+  final user = await ref.watch(authUserProvider.future);
+  if (user != null) {
+    await ref.read(idTokenSyncProvider.future);
+    return '/chat';
+  } else {
+    return '/login';
+  }
+});
+
 class AuthController {
   final Ref ref;
   AuthController(this.ref);
@@ -38,7 +53,8 @@ class AuthController {
     }
   }
 
-  Future<bool> signUpEmail(String email, String password, {String? displayName}) async {
+  Future<bool> signUpEmail(String email, String password,
+      {String? displayName}) async {
     final svc = ref.read(authServiceProvider);
     final ok = await ref.read(authInitializedProvider.future);
     if (!ok) return false;
@@ -75,4 +91,5 @@ class AuthController {
   }
 }
 
-final authControllerProvider = Provider<AuthController>((ref) => AuthController(ref));
+final authControllerProvider =
+    Provider<AuthController>((ref) => AuthController(ref));

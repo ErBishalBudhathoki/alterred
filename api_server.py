@@ -34,6 +34,16 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def _strip_api_prefix(request: Request, call_next):
+    p = request.scope.get("path", "")
+    if p.startswith("/api/"):
+        request.scope["path"] = p[4:]
+    elif p == "/api":
+        request.scope["path"] = "/"
+    return await call_next(request)
+
+
 def _uid(user_id: str | None) -> str:
     return user_id or os.getenv("USER") or "terminal_user"
 

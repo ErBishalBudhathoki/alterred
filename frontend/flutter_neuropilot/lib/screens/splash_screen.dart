@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/design_tokens.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import '../core/routes.dart';
 import '../state/auth_state.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
@@ -15,8 +13,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _ctl;
   late final Animation<double> _fade;
-  bool _started = false;
-  bool _navigated = false;
 
   @override
   void initState() {
@@ -24,33 +20,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     _ctl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1200));
     _fade = CurvedAnimation(parent: _ctl, curve: Curves.easeInOut);
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (_started) return;
-      _started = true;
-      ref.listen<AsyncValue<bool>>(authInitializedProvider, (prev, next) async {
-        if (_navigated || !mounted) return;
-        if (next.hasError) {
-          _navigated = true;
-          Navigator.of(context)
-              .pushNamedAndRemoveUntil(Routes.login, (r) => false);
-          return;
-        }
-        if (next.hasValue && next.value == true) {
-          try {
-            await ref.read(idTokenSyncProvider.future);
-          } catch (_) {}
-          ref.listen<AsyncValue<User?>>(authUserProvider, (p, n) {
-            if (_navigated || !mounted) return;
-            if (n.hasValue) {
-              final u = n.value;
-              _navigated = true;
-              Navigator.of(context).pushNamedAndRemoveUntil(
-                  u != null ? Routes.chat : Routes.login, (r) => false);
-            }
-          });
-        }
-      });
-    });
   }
 
   @override
@@ -72,6 +41,13 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<AsyncValue<String>>(navigationProvider, (prev, next) {
+      if (next.hasValue) {
+        Navigator.of(context)
+            .pushNamedAndRemoveUntil(next.value!, (r) => false);
+      }
+    });
+
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: cs.primary,

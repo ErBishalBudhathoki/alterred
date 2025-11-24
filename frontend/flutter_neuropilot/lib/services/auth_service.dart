@@ -25,11 +25,14 @@ class AuthService {
   }
 
   Future<UserCredential> signInWithEmail(String email, String password) async {
-    return await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: password);
+    return await FirebaseAuth.instance
+        .signInWithEmailAndPassword(email: email, password: password);
   }
 
-  Future<UserCredential> signUpWithEmail(String email, String password, {String? displayName}) async {
-    final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: password);
+  Future<UserCredential> signUpWithEmail(String email, String password,
+      {String? displayName}) async {
+    final cred = await FirebaseAuth.instance
+        .createUserWithEmailAndPassword(email: email, password: password);
     if (displayName != null && displayName.isNotEmpty) {
       await cred.user?.updateDisplayName(displayName);
     }
@@ -50,7 +53,8 @@ class AuthService {
       final acc = await g.signIn();
       if (acc == null) return null;
       final auth = await acc.authentication;
-      final cred = GoogleAuthProvider.credential(accessToken: auth.accessToken, idToken: auth.idToken);
+      final cred = GoogleAuthProvider.credential(
+          accessToken: auth.accessToken, idToken: auth.idToken);
       return await FirebaseAuth.instance.signInWithCredential(cred);
     } catch (_) {
       return null;
