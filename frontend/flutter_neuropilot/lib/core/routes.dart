@@ -20,7 +20,7 @@ class Routes {
   static const health = '/health';
 
   static Map<String, WidgetBuilder> get map => {
-        home: (_) => const ChatScreen(),
+        // Note: '/' is handled by MaterialApp's home parameter
         chat: (_) => const ChatScreen(),
         splash: (_) => const SplashScreen(),
         login: (_) => const LoginScreen(),

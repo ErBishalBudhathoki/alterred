@@ -7,11 +7,38 @@ import 'core/routes.dart';
 import 'core/firebase_env.dart';
 import 'core/design_tokens.dart';
 import 'state/session_state.dart';
+import 'state/auth_state.dart';
+import 'screens/splash_screen.dart';
+import 'screens/chat_screen.dart';
+import 'screens/login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initFirebase();
   runApp(const ProviderScope(child: NeuroPilotApp()));
+}
+
+/// AuthGate handles initial routing without showing splash on refresh
+class _AuthGate extends ConsumerWidget {
+  const _AuthGate();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final navAsync = ref.watch(navigationProvider);
+    
+    return navAsync.when(
+      data: (route) {
+        // Directly show the target screen without splash
+        if (route == '/chat') {
+          return const ChatScreen();
+        } else {
+          return const LoginScreen();
+        }
+      },
+      loading: () => const SplashScreen(), // Show splash only while loading
+      error: (_, __) => const LoginScreen(), // Fallback to login on error
+    );
+  }
 }
 
 class NeuroPilotApp extends ConsumerWidget {
@@ -119,7 +146,7 @@ class NeuroPilotApp extends ConsumerWidget {
         GlobalWidgetsLocalizations.delegate,
       ],
       supportedLocales: AppLocalizations.supportedLocales,
-      initialRoute: Routes.splash,
+      home: const _AuthGate(),
       routes: Routes.map,
     );
   }

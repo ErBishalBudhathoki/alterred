@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -15,11 +17,11 @@ import '../core/components/np_snackbar.dart';
 import '../core/components/np_progress.dart';
 import '../core/components/np_bottom_sheet.dart';
 import '../core/components/np_badge.dart';
+import '../core/components/np_liquid_ball.dart';
 import '../services/api_client.dart';
+import '../state/session_state.dart';
 import '../core/speech_service.dart';
 import '../core/tts_service.dart';
-import '../core/components/np_liquid_ball.dart';
-import '../state/session_state.dart';
 import '../core/routes.dart';
 // import '../core/link_opener.dart';
 
@@ -100,7 +102,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   double _volume = 1.0;
   double _soundLevel = 0.0;
   bool _voiceSession = false;
-  int _consecutiveSilence = 0; // Track consecutive empty speech recognitions
+  int _consecutiveSilence = 0;
+  Timer? _voiceRestartTimer; // Cancellable timer for voice session restart
 
   StreamSubscription<String>? _partialSub;
   StreamSubscription<double>? _levelSub;
@@ -282,9 +285,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                       label: 'Stop',
                       icon: Icons.stop,
                       type: NpButtonType.secondary,
-                      onPressed: () async {
-                        await _speech.stop();
-                        setState(() => _listening = false);
+                      onPressed: () {
+                        // Cancel any pending restart and stop all voice services
+                        _voiceRestartTimer?.cancel();
+                        _voiceRestartTimer = null;
+                        _speech.stop();
+                        _tts.stop();
+                        setState(() {
+                          _listening = false;
+                          _voiceSession = false;
+                          _voiceOutput = false;
+                          _partialText = '';
+                          _soundLevel = 0.0;
+                          _consecutiveSilence = 0;
+                          _engaged.remove('SpeechRecognition');
+                        });
                       },
                     ),
                   ],
@@ -597,7 +612,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                               if (_voiceMode) {
                                 if (_speech.supported) {
                                   setState(() {
-                                    if (!_engaged.contains('SpeechRecognition')) {
+                                    if (!_engaged
+                                        .contains('SpeechRecognition')) {
                                       _engaged.add('SpeechRecognition');
                                     }
                                     _listening = true;
@@ -1272,7 +1288,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     setState(() {
       _messages.add(ChatMessage(role: 'assistant', content: content));
     });
-    
+
     // Speak the response if voice output is enabled
     if (_voiceOutput && _tts.supported) {
       setState(() => _speaking = true);
@@ -1281,14 +1297,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       if (mounted) {
         setState(() => _speaking = false);
       }
-    }
-    
-    // Continue listening in voice mode after response (whether spoken or not)
-    if (_voiceSession && !_listening && !_loading && mounted) {
-      Future.delayed(
-          Duration(milliseconds: _voiceOutput ? 500 : 300), 
-          _startListeningForSession
-      );
     }
   }
 
@@ -1354,13 +1362,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     if (_voiceSession) {
       _startListeningForSession();
     } else {
+      // Immediately stop everything and cancel pending restarts
+      _voiceRestartTimer?.cancel();
+      _voiceRestartTimer = null;
       _speech.stop();
       _tts.stop();
       setState(() {
         _listening = false;
         _partialText = '';
         _soundLevel = 0.0;
-        _consecutiveSilence = 0; // Reset counter when stopping
+        _consecutiveSilence = 0;
+        _engaged.remove('SpeechRecognition');
       });
     }
   }
@@ -1368,12 +1380,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   Future<void> _startListeningForSession() async {
     if (!mounted) return;
     if (!(_voiceSession || _voiceOutput)) return;
-    
+
     // Prevent starting if already listening
     if (_listening) return;
-    
+
     if (_speaking) {
-      Future.delayed(const Duration(milliseconds: 800), () {
+      _voiceRestartTimer?.cancel();
+      _voiceRestartTimer = Timer(const Duration(milliseconds: 800), () {
         if (!mounted) return;
         _startListeningForSession();
       });
@@ -1422,13 +1435,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _soundLevel = 0.0;
     });
     if (finalText.isNotEmpty) {
-      setState(() => _consecutiveSilence = 0); // Reset counter on successful speech
+      setState(
+          () => _consecutiveSilence = 0); // Reset counter on successful speech
       final api = ref.read(apiClientProvider);
       _input.text = finalText;
       await _handleSubmit(api, isVoice: true);
     } else {
       setState(() => _consecutiveSilence++);
-      
+
       // Stop after 3 consecutive empty recognitions to prevent infinite loop
       if (_consecutiveSilence >= 3) {
         if (mounted) {
@@ -1445,11 +1459,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         }
         return;
       }
-      
+
       if ((_voiceSession || _voiceOutput) && mounted) {
         // Only restart if we're still in voice session mode
         Future.delayed(const Duration(milliseconds: 500), () {
           if (!mounted || (!_voiceSession && !_voiceOutput)) return;
+          // Only restart if session hasn't been stopped
           _startListeningForSession();
         });
       }
