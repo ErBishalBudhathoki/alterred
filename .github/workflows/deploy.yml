@@ -13,7 +13,7 @@ env:
   REPOSITORY: neuropilot-api
 
 jobs:
-  deploy-backend:
+  deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: 'read'
@@ -33,17 +33,18 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      # Backend Deployment
       - name: Authorize Docker push
         run: gcloud auth configure-docker
 
-      - name: Build and Push Container
+      - name: Build and Push Backend Container
         run: |
           IMAGE_TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
           docker build -t "${IMAGE_TAG}" .
           docker push "${IMAGE_TAG}"
           echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
 
-      - name: Deploy to Cloud Run
+      - name: Deploy Backend to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
           service: ${{ env.SERVICE_NAME }}
@@ -53,41 +54,17 @@ jobs:
           env_vars: |
             FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }}
 
-  deploy-frontend:
-    needs: deploy-backend
-    runs-on: ubuntu-latest
-    permissions:
-      contents: 'read'
-      id-token: 'write'
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Debug Vars
-        run: |
-          echo "WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}"
-          echo "WIF_SERVICE_ACCOUNT: ${{ vars.WIF_SERVICE_ACCOUNT }}"
-
-      - name: Google Auth
-        id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: '${{ vars.WIF_PROVIDER || secrets.WIF_PROVIDER }}'
-          service_account: '${{ vars.WIF_SERVICE_ACCOUNT || secrets.WIF_SERVICE_ACCOUNT }}'
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
+      # Frontend Deployment
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
 
-      - name: Install Dependencies
+      - name: Install Flutter Dependencies
         working-directory: frontend/flutter_neuropilot
         run: flutter pub get
 
-      - name: Build Web
+      - name: Build Web App
         working-directory: frontend/flutter_neuropilot
         env:
           FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
@@ -112,6 +89,6 @@ jobs:
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
 
-      - name: Deploy to Firebase Hosting
+      - name: Deploy Frontend to Firebase Hosting
         run: |
           firebase deploy --only hosting --project ${{ env.PROJECT_ID }}
