@@ -100,6 +100,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   double _volume = 1.0;
   double _soundLevel = 0.0;
   bool _voiceSession = false;
+  int _consecutiveSilence = 0; // Track consecutive empty speech recognitions
 
   StreamSubscription<String>? _partialSub;
   StreamSubscription<double>? _levelSub;
@@ -596,7 +597,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                               if (_voiceMode) {
                                 if (_speech.supported) {
                                   setState(() {
-                                    _engaged.add('SpeechRecognition');
+                                    if (!_engaged.contains('SpeechRecognition')) {
+                                      _engaged.add('SpeechRecognition');
+                                    }
                                     _listening = true;
                                   });
                                   _partialSub?.cancel();
@@ -1265,17 +1268,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
-  void _appendAssistant(String content) {
+  void _appendAssistant(String content) async {
     setState(() {
       _messages.add(ChatMessage(role: 'assistant', content: content));
     });
+    
+    // Speak the response if voice output is enabled
     if (_voiceOutput && _tts.supported) {
+      setState(() => _speaking = true);
       _tts.volume = _volume;
-      _tts.speak(content);
+      await _tts.speak(content);
+      if (mounted) {
+        setState(() => _speaking = false);
+      }
     }
-    if (!_voiceOutput && _voiceSession && !_listening && !_loading) {
+    
+    // Continue listening in voice mode after response (whether spoken or not)
+    if (_voiceSession && !_listening && !_loading && mounted) {
       Future.delayed(
-          const Duration(milliseconds: 300), _startListeningForSession);
+          Duration(milliseconds: _voiceOutput ? 500 : 300), 
+          _startListeningForSession
+      );
     }
   }
 
@@ -1347,6 +1360,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         _listening = false;
         _partialText = '';
         _soundLevel = 0.0;
+        _consecutiveSilence = 0; // Reset counter when stopping
       });
     }
   }
@@ -1354,6 +1368,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   Future<void> _startListeningForSession() async {
     if (!mounted) return;
     if (!(_voiceSession || _voiceOutput)) return;
+    
+    // Prevent starting if already listening
+    if (_listening) return;
+    
     if (_speaking) {
       Future.delayed(const Duration(milliseconds: 800), () {
         if (!mounted) return;
@@ -1375,7 +1393,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       return;
     }
     setState(() {
-      _engaged.add('SpeechRecognition');
+      if (!_engaged.contains('SpeechRecognition')) {
+        _engaged.add('SpeechRecognition');
+      }
       _listening = true;
     });
     _partialSub?.cancel();
@@ -1402,13 +1422,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _soundLevel = 0.0;
     });
     if (finalText.isNotEmpty) {
+      setState(() => _consecutiveSilence = 0); // Reset counter on successful speech
       final api = ref.read(apiClientProvider);
       _input.text = finalText;
       await _handleSubmit(api, isVoice: true);
     } else {
-      if (_voiceSession || _voiceOutput) {
-        Future.delayed(const Duration(milliseconds: 300), () {
-          if (!mounted) return;
+      setState(() => _consecutiveSilence++);
+      
+      // Stop after 3 consecutive empty recognitions to prevent infinite loop
+      if (_consecutiveSilence >= 3) {
+        if (mounted) {
+          setState(() {
+            _voiceSession = false;
+            _voiceOutput = false;
+            _consecutiveSilence = 0;
+          });
+          NpSnackbar.show(
+            context,
+            'Voice session paused due to inactivity. Click the voice button to resume.',
+            type: NpSnackType.info,
+          );
+        }
+        return;
+      }
+      
+      if ((_voiceSession || _voiceOutput) && mounted) {
+        // Only restart if we're still in voice session mode
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (!mounted || (!_voiceSession && !_voiceOutput)) return;
           _startListeningForSession();
         });
       }
