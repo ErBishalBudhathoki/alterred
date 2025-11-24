@@ -6,7 +6,7 @@ load_dotenv()
 
 from fastapi import FastAPI, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from services.history_service import yesterday_range, get_sessions_by_date, get_events_for_session
@@ -205,9 +205,36 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
         return {"text": last_text, "tools": tool_results, "session_id": session_id}
     except Exception as e:
         msg = str(e)
+        try:
+            print(f"[{datetime.utcnow().isoformat()}] /chat/respond error uid={uid} sid={session_id}: {msg}")
+        except Exception:
+            pass
+        # Basic structured error payload for client diagnostics
+        err = {"message": msg}
+        if "INTERNAL" in msg:
+            err["code"] = 500
+            err["status"] = "INTERNAL"
+        # Graceful overload feedback
         if "UNAVAILABLE" in msg or "overloaded" in msg:
-            return {"text": "The model is temporarily overloaded. Please try again in a moment.", "tools": [], "session_id": session_id, "error": "model_overloaded"}
-        return {"text": f"An error occurred: {msg}", "tools": [], "session_id": session_id, "error": msg}
+            return {"text": "The model is temporarily overloaded. Please try again in a moment.", "tools": [], "session_id": session_id, "error": "model_overloaded", "error_detail": err}
+        # Fallback: attempt direct calendar intent parse & create when user asks calendar
+        try:
+            low = text.lower()
+            if "calendar" in low or "event" in low or "add an event" in low:
+                import asyncio
+                from services.calendar_mcp import create_calendar_event_intent, _create_event_async
+                intent = create_calendar_event_intent(text, default_title="Appointment")
+                if intent.get("ok") and intent.get("intent"):
+                    i = intent["intent"]
+                    res = asyncio.run(_create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description")))
+                    msg_nl = _nl_event_confirmation(
+                        i["summary"], i["start"], i["end"], i.get("location"), "your primary calendar"
+                    )
+                    return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": res}], "session_id": session_id}
+        except Exception as fe:
+            # include fallback error detail but do not crash
+            err["fallback_error"] = str(fe)
+        return {"text": f"An error occurred: {msg}", "tools": [], "session_id": session_id, "error": msg, "error_detail": err}
 
 
 @app.post("/chat/command")
@@ -223,3 +250,30 @@ def api_chat_command(request: Request, payload: Dict[str, Any] = Body(...)):
 @app.get("/chat/help")
 def api_chat_help():
     return chat_help()
+def _nl_event_confirmation(title: str, start_iso: str, end_iso: str, location: Optional[str] = None, calendar_label: Optional[str] = None) -> str:
+    try:
+        s = datetime.fromisoformat(start_iso)
+        e = datetime.fromisoformat(end_iso)
+        today = datetime.now().date()
+        day_phrase = s.strftime("%A %b %d")
+        # safer tomorrow check
+        try:
+            from datetime import timedelta
+            if s.date() == (today + timedelta(days=1)):
+                day_phrase = "tomorrow"
+            elif s.date() == today:
+                day_phrase = "today"
+        except Exception:
+            pass
+        dur_min = max(1, int((e - s).total_seconds() // 60))
+        if dur_min % 60 == 0:
+            dur_phrase = f"{dur_min // 60} hour" + ("s" if (dur_min // 60) != 1 else "")
+        else:
+            dur_phrase = f"{dur_min} minutes"
+        tstr = s.strftime("%I:%M %p").lstrip("0")
+        loc_phrase = f" at {location.strip()}" if location and location.strip() else ""
+        cal_phrase = f" on {calendar_label}" if calendar_label else ""
+        return f"I've scheduled '{title}' {day_phrase} at {tstr}{loc_phrase} for {dur_phrase}{cal_phrase}."
+    except Exception:
+        extra = f" at {location}" if location else ""
+        return f"Event created: {title} ({start_iso} - {end_iso}){extra}."

@@ -11,39 +11,57 @@ except Exception:
 
 
 def _parse_time_natural(text: str) -> Optional[Dict[str, str]]:
+    """Parse natural language like:
+    - "tomorrow at 9:15"
+    - "for 9:15" (assumed today, local time)
+    - "9 pm" or "9:15 am"
+    - duration phrases ("for 1 hour", "for 30 minutes")
+
+    Returns start/end ISO strings with local timezone.
+    """
     now = datetime.now()
     lower = text.lower()
-    # naive parse for "9:15 pm" or "9 pm"
+    # Day offset
+    day_offset = 0
+    if "day after tomorrow" in lower:
+        day_offset = 2
+    elif "tomorrow" in lower:
+        day_offset = 1
+    base_day = now + timedelta(days=day_offset)
+
+    # Duration
+    minutes = _parse_duration_minutes(lower)
+
     import re
-    m = re.search(r"(\d{1,2}):(\d{2})\s*(am|pm)", lower)
+    # 1) HH:MM with optional am/pm
+    m = re.search(r"(\b\d{1,2}):(\d{2})\s*(am|pm)?\b", lower)
     if m:
         hour = int(m.group(1))
         minute = int(m.group(2))
         ampm = m.group(3)
-        if ampm == "pm" and hour != 12:
-            hour += 12
-        if ampm == "am" and hour == 12:
-            hour = 0
-        start = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        end = start + timedelta(minutes=60)
-        return {
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-        }
-    m2 = re.search(r"(\d{1,2})\s*(am|pm)", lower)
+        if ampm:
+            if ampm == "pm" and hour != 12:
+                hour += 12
+            if ampm == "am" and hour == 12:
+                hour = 0
+        start = base_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        end = start + timedelta(minutes=minutes)
+        return {"start": start.isoformat(), "end": end.isoformat()}
+
+    # 2) "at HH" or "HH am/pm"
+    m2 = re.search(r"\b(?:at\s+)?(\d{1,2})\s*(am|pm)?\b", lower)
     if m2:
         hour = int(m2.group(1))
         ampm = m2.group(2)
-        if ampm == "pm" and hour != 12:
-            hour += 12
-        if ampm == "am" and hour == 12:
-            hour = 0
-        start = now.replace(hour=hour, minute=0, second=0, microsecond=0)
-        end = start + timedelta(minutes=60)
-        return {
-            "start": start.isoformat(),
-            "end": end.isoformat(),
-        }
+        if ampm:
+            if ampm == "pm" and hour != 12:
+                hour += 12
+            if ampm == "am" and hour == 12:
+                hour = 0
+        start = base_day.replace(hour=hour, minute=0, second=0, microsecond=0)
+        end = start + timedelta(minutes=minutes)
+        return {"start": start.isoformat(), "end": end.isoformat()}
+
     return None
 
 
@@ -273,13 +291,20 @@ def _parse_content_json(content_list: Any) -> Optional[Dict[str, Any]]:
 def _extract_title(text: str) -> Optional[str]:
     t = text.strip()
     import re
+    # explicit title syntax
     m = re.search(r"title\s*[:=]?\s*['\"“”]([^'\"“”]+)['\"“”]", t, re.IGNORECASE)
     if m:
         return m.group(1).strip()
+    # title before scheduling keywords
     m2 = re.search(r"title\s*[:=]?\s*['\"“”]?(.+?)['\"“”]?\s+(?:and\s+set|set|at|on|for|which|that|schedule|scheduled|lasting|lasts)\b", t, re.IGNORECASE)
     if m2:
         return m2.group(1).strip()
-    m3 = re.search(r"(.+?)\s+at\s+\d", t, re.IGNORECASE)
+    # phrase like "about <title> ..."
+    m3 = re.search(r"\babout\s+(.+?)(?:\s+(?:and|that's|for|at|on|lasting|lasts)\b|$)", t, re.IGNORECASE)
     if m3:
-        return m3.group(1).strip()
+        return m3.group(1).strip().strip(".,")
+    # leading phrase before "at <time>"
+    m4 = re.search(r"(.+?)\s+at\s+\d", t, re.IGNORECASE)
+    if m4:
+        return m4.group(1).strip()
     return None

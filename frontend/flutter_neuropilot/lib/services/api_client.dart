@@ -7,7 +7,8 @@ class ApiClient {
   final String baseUrl;
   final String? token;
   final http.Client _client;
-  ApiClient({required this.baseUrl, this.token, http.Client? client}) : _client = client ?? http.Client();
+  ApiClient({required this.baseUrl, this.token, http.Client? client})
+      : _client = client ?? http.Client();
 
   Map<String, String> _headers() => {
         'Content-Type': 'application/json',
@@ -25,12 +26,14 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> calendarEventsToday() async {
-    final r = await _send(_client.get(Uri.parse('$baseUrl/calendar/events/today')));
+    final r =
+        await _send(_client.get(Uri.parse('$baseUrl/calendar/events/today')));
     return _decodeEnsureOk(r);
   }
 
   Future<Map<String, dynamic>> sessionsYesterday() async {
-    final r = await _send(_client.get(Uri.parse('$baseUrl/sessions/yesterday')));
+    final r =
+        await _send(_client.get(Uri.parse('$baseUrl/sessions/yesterday')));
     return _decodeEnsureOk(r);
   }
 
@@ -43,7 +46,8 @@ class ApiClient {
     return _decodeEnsureOk(r);
   }
 
-  Future<Map<String, dynamic>> scheduleTasks(List<String> items, int energy, List<int>? weights) async {
+  Future<Map<String, dynamic>> scheduleTasks(
+      List<String> items, int energy, List<int>? weights) async {
     final r = await _send(_client.post(
       Uri.parse('$baseUrl/tasks/schedule'),
       headers: _headers(),
@@ -61,7 +65,8 @@ class ApiClient {
     return _decodeEnsureOk(r);
   }
 
-  Future<Map<String, dynamic>> energyMatch(List<String> tasks, int energy) async {
+  Future<Map<String, dynamic>> energyMatch(
+      List<String> tasks, int energy) async {
     final r = await _send(_client.post(
       Uri.parse('$baseUrl/energy/match'),
       headers: _headers(),
@@ -70,7 +75,8 @@ class ApiClient {
     return _decodeEnsureOk(r);
   }
 
-  Future<Map<String, dynamic>> reduceOptions(List<String> options, int limit) async {
+  Future<Map<String, dynamic>> reduceOptions(
+      List<String> options, int limit) async {
     final r = await _send(_client.post(
       Uri.parse('$baseUrl/decision/reduce'),
       headers: _headers(),
@@ -103,25 +109,33 @@ class ApiClient {
     return (m['notes'] as List<dynamic>? ?? []);
   }
 
-  Future<Map<String, dynamic>> chatRespond(String text, {String? sessionId}) async {
+  Future<Map<String, dynamic>> chatRespond(String text,
+      {String? sessionId}) async {
     final payload = <String, dynamic>{'text': text};
     if (sessionId != null) payload['session_id'] = sessionId;
-    final r = await _send(_client.post(
-      Uri.parse('$baseUrl/chat/respond'),
-      headers: _headers(),
-      body: jsonEncode(payload),
-    ));
+    final r = await _sendWithRetry(
+        _client.post(
+          Uri.parse('$baseUrl/chat/respond'),
+          headers: _headers(),
+          body: jsonEncode(payload),
+        ),
+        timeoutSeconds: 20,
+        retries: 1);
     return _decodeEnsureOk(r);
   }
 
-  Future<Map<String, dynamic>> chatCommand(String text, {String? sessionId}) async {
+  Future<Map<String, dynamic>> chatCommand(String text,
+      {String? sessionId}) async {
     final payload = <String, dynamic>{'text': text};
     if (sessionId != null) payload['session_id'] = sessionId;
-    final r = await _send(_client.post(
-      Uri.parse('$baseUrl/chat/command'),
-      headers: _headers(),
-      body: jsonEncode(payload),
-    ));
+    final r = await _sendWithRetry(
+        _client.post(
+          Uri.parse('$baseUrl/chat/command'),
+          headers: _headers(),
+          body: jsonEncode(payload),
+        ),
+        timeoutSeconds: 20,
+        retries: 1);
     return _decodeEnsureOk(r);
   }
 
@@ -134,7 +148,8 @@ class ApiClient {
     final body = r.body.isEmpty ? '{}' : r.body;
     final map = jsonDecode(body) as Map<String, dynamic>;
     if (r.statusCode >= 200 && r.statusCode < 300) return map;
-    final msg = map['error'] ?? map['message'] ?? 'Request failed (${r.statusCode})';
+    final msg =
+        map['error'] ?? map['message'] ?? 'Request failed (${r.statusCode})';
     throw msg;
   }
 
@@ -143,10 +158,31 @@ class ApiClient {
       return await future.timeout(const Duration(seconds: 10));
     } on TimeoutException {
       debugPrint('Network timeout');
-      throw 'Network timeout';
+      throw TimeoutException('Network timeout');
     } on Object catch (e) {
       debugPrint('Network error: $e');
       rethrow;
+    }
+  }
+
+  Future<http.Response> _sendWithRetry(Future<http.Response> future,
+      {int timeoutSeconds = 10, int retries = 0}) async {
+    int attempt = 0;
+    while (true) {
+      try {
+        return await future.timeout(Duration(seconds: timeoutSeconds));
+      } on TimeoutException {
+        debugPrint('Network timeout');
+        if (attempt >= retries) {
+          throw TimeoutException('Network timeout');
+        }
+        await Future.delayed(Duration(milliseconds: 300 * (attempt + 1)));
+        attempt++;
+        continue;
+      } on Object catch (e) {
+        debugPrint('Network error: $e');
+        rethrow;
+      }
     }
   }
 }

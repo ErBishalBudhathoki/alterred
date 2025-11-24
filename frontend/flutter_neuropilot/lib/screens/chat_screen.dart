@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -104,6 +103,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   bool _voiceSession = false;
   int _consecutiveSilence = 0;
   Timer? _voiceRestartTimer; // Cancellable timer for voice session restart
+  String? _pendingVoiceText;
+  bool _offlineHoldNoticeShown = false;
 
   StreamSubscription<String>? _partialSub;
   StreamSubscription<double>? _levelSub;
@@ -631,12 +632,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                   final lastPartial = _partialText;
                                   _partialSub?.cancel();
                                   _levelSub?.cancel();
+                                  final a = (t ?? '').trim();
+                                  final b = lastPartial.trim();
                                   final candidate =
-                                      (t != null && t.trim().isNotEmpty)
-                                          ? t.trim()
-                                          : (lastPartial.trim().isNotEmpty
-                                              ? lastPartial.trim()
-                                              : '');
+                                      (a.length >= b.length && a.isNotEmpty)
+                                          ? a
+                                          : (b.isNotEmpty ? b : '');
                                   final finalText =
                                       _formatTranscript(candidate);
                                   setState(() {
@@ -1037,6 +1038,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _loading = true;
     });
     try {
+      final mem = ref.read(contextMemoryProvider);
+      await mem.add(ChatMessage(role: 'user', content: text));
+    } catch (_) {}
+    try {
       final tc = _parseTimerCommand(text);
       if (tc.action == _TimerAction.query) {
         if (_timers.isEmpty) {
@@ -1103,7 +1108,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _engage('ADK Orchestrator');
       Map<String, dynamic> rr;
       try {
-        rr = await api.chatRespond(text);
+        final sid = await ref.read(ensureChatSessionIdProvider.future);
+        rr = await api.chatRespond(text, sessionId: sid);
       } catch (e) {
         if (!mounted) return;
         _disengage('ADK Orchestrator');
@@ -1255,7 +1261,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         case Intent.unknown:
           _engage('Command Router');
           try {
-            final r = await api.chatCommand(text);
+            final sid = await ref.read(ensureChatSessionIdProvider.future);
+            final r = await api.chatCommand(text, sessionId: sid);
             _disengage('Command Router');
             if (r['ok'] == true) {
               final sugg =
@@ -1288,6 +1295,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     setState(() {
       _messages.add(ChatMessage(role: 'assistant', content: content));
     });
+    try {
+      final mem = ref.read(contextMemoryProvider);
+      await mem.add(ChatMessage(role: 'assistant', content: content));
+    } catch (_) {}
 
     // Speak the response if voice output is enabled
     if (_voiceOutput && _tts.supported) {
@@ -1423,9 +1434,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final lastPartial = _partialText;
     _partialSub?.cancel();
     _levelSub?.cancel();
-    final candidate = (t != null && t.trim().isNotEmpty)
-        ? t.trim()
-        : (lastPartial.trim().isNotEmpty ? lastPartial.trim() : '');
+    final a = (t ?? '').trim();
+    final b = lastPartial.trim();
+    final candidate =
+        (a.length >= b.length && a.isNotEmpty) ? a : (b.isNotEmpty ? b : '');
     final finalText = _formatTranscript(candidate);
     if (!mounted) return;
     setState(() {
@@ -1435,11 +1447,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _soundLevel = 0.0;
     });
     if (finalText.isNotEmpty) {
-      setState(
-          () => _consecutiveSilence = 0); // Reset counter on successful speech
+      setState(() => _consecutiveSilence = 0);
       final api = ref.read(apiClientProvider);
-      _input.text = finalText;
-      await _handleSubmit(api, isVoice: true);
+      if (_backendOk) {
+        _input.text = finalText;
+        await _handleSubmit(api, isVoice: true);
+      } else {
+        _pendingVoiceText = finalText;
+        if (!_offlineHoldNoticeShown) {
+          _offlineHoldNoticeShown = true;
+          _showModeBannerNow('Backend offline — holding your voice message');
+        }
+      }
     } else {
       setState(() => _consecutiveSilence++);
 
@@ -1727,6 +1746,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _epochBaseMs = DateTime.now().millisecondsSinceEpoch - tsMs;
       await _loadPulsePrefs();
       await _pingBackend();
+      try {
+        await ref.read(ensureChatSessionIdProvider.future);
+        final mem = ref.read(contextMemoryProvider);
+        final hist = await mem.loadAll();
+        if (mounted && hist.isNotEmpty) {
+          setState(() {
+            _messages.addAll(hist);
+          });
+        }
+      } catch (_) {}
       if (!_isTestEnv) {
         _heartbeat?.cancel();
         _heartbeat = Timer.periodic(const Duration(seconds: 10), (_) async {
@@ -1806,7 +1835,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final api = ref.read(apiClientProvider);
     try {
       final r = await api.health();
+      final wasOk = _backendOk;
       setState(() => _backendOk = r['ok'] == true);
+      if (_backendOk && !wasOk && _pendingVoiceText != null) {
+        final t = _pendingVoiceText!;
+        _pendingVoiceText = null;
+        _offlineHoldNoticeShown = false;
+        await _handleSubmit(api, isVoice: true, textOverride: t);
+        if (mounted) {
+          _showModeBannerNow('Sent held voice message');
+        }
+      }
     } catch (_) {
       setState(() => _backendOk = false);
     }

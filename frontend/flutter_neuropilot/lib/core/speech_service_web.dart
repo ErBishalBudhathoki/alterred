@@ -58,27 +58,48 @@ class _WebSpeech implements SpeechService {
                 jsEvent.getProperty<JSAny>('results'.toJS) as JSObject;
             final idxAny = jsEvent.getProperty<JSAny>('resultIndex'.toJS);
             final idxNum = idxAny.dartify() as num?;
-            final idx = idxNum?.toInt() ?? 0;
+            var idx = idxNum?.toInt() ?? 0;
+            int resultsLen = 0;
+            try {
+              final lenAny =
+                  results.getProperty<JSAny>('length'.toJS).dartify();
+              resultsLen = (lenAny is num) ? lenAny.toInt() : 0;
+            } catch (_) {}
+            if (resultsLen <= 0) return;
+            if (idx < 0 || idx >= resultsLen) idx = resultsLen - 1;
             final result = results.getProperty<JSAny>(idx.toJS) as JSObject;
+            bool hasItem0 = false;
+            try {
+              hasItem0 = result.hasProperty(0.toJS).toDart;
+            } catch (_) {}
+            if (!hasItem0) return;
             final item = result.getProperty<JSAny>(0.toJS) as JSObject;
             final transcriptAny = item.getProperty<JSAny>('transcript'.toJS);
             final tStr = transcriptAny.dartify()?.toString() ?? '';
-            debugPrint('WebSpeech: onresult idx=$idx transcript="$tStr"');
+            debugPrint('WebSpeech: onresult idx=' +
+                idx.toString() +
+                ' transcript="' +
+                tStr +
+                '"');
             if (tStr.isNotEmpty) {
-              last = tStr;
+              // Prefer longest observed transcript to avoid truncated finals
+              if (tStr.length >= last.length) {
+                last = tStr;
+              }
               _partialCtl.add(last);
             }
             final finalProp = result.getProperty<JSAny>('isFinal'.toJS);
             final finalVal = finalProp.dartify();
             final isFinal = finalVal is bool ? finalVal : false;
-            debugPrint('WebSpeech: result isFinal=$isFinal');
+            debugPrint(
+                'WebSpeech: result isFinal=' + (isFinal ? 'true' : 'false'));
             if (isFinal) {
               _running = false;
               _rec!.callMethod('stop'.toJS);
               if (!c.isCompleted) c.complete(last.isNotEmpty ? last : null);
             }
           } catch (e) {
-            debugPrint('WebSpeech: onresult error=$e');
+            debugPrint('WebSpeech: onresult error=' + e.toString());
             _running = false;
             try {
               _rec!.callMethod('stop'.toJS);
