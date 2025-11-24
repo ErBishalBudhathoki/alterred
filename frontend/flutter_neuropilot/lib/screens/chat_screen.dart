@@ -214,7 +214,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                               ? 'Backend: Connected'
                               : 'Backend: Offline',
                           selected: _backendOk),
-                      ..._engaged.map((e) => NpChip(label: e, selected: true)),
+                      ..._engaged
+                          .toSet()
+                          .take(4)
+                          .map((e) => NpChip(label: e, selected: true)),
                     ],
                   ),
                 ],
@@ -859,6 +862,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   void _startProactiveCheckins() {
+    if (_inactivityTimer != null || _sessionTimer != null) {
+      return;
+    }
     setState(() {
       _sessionDurationMinutes = 0;
       _lastActivityTime = DateTime.now();
@@ -936,6 +942,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       }
     } finally {
       if (mounted) {
+        _disengage('Proactive Check-in');
         _resetInactivityTimer();
       }
     }
@@ -1109,7 +1116,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       Map<String, dynamic> rr;
       try {
         final sid = await ref.read(ensureChatSessionIdProvider.future);
-        rr = await api.chatRespond(text, sessionId: sid);
+        final gse = ref.read(googleSearchEnabledProvider);
+        rr = await api.chatRespond(text, sessionId: sid, googleSearch: gse);
       } catch (e) {
         if (!mounted) return;
         _disengage('ADK Orchestrator');
@@ -1262,7 +1270,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           _engage('Command Router');
           try {
             final sid = await ref.read(ensureChatSessionIdProvider.future);
-            final r = await api.chatCommand(text, sessionId: sid);
+            final gse = ref.read(googleSearchEnabledProvider);
+            final r =
+                await api.chatCommand(text, sessionId: sid, googleSearch: gse);
             _disengage('Command Router');
             if (r['ok'] == true) {
               final sugg =
@@ -1491,11 +1501,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   void _engage(String name) {
-    setState(() => _engaged.add(name));
+    setState(() {
+      if (!_engaged.contains(name)) {
+        _engaged.add(name);
+      }
+    });
   }
 
   void _disengage(String name) {
-    setState(() => _engaged.remove(name));
+    setState(() {
+      _engaged.removeWhere((e) => e == name);
+    });
   }
 
   String _formatExactDuration(int seconds) {
@@ -1747,6 +1763,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       await _loadPulsePrefs();
       await _pingBackend();
       try {
+        await ref.read(loadGoogleSearchEnabledProvider.future);
+      } catch (_) {}
+      try {
         await ref.read(ensureChatSessionIdProvider.future);
         final mem = ref.read(contextMemoryProvider);
         final hist = await mem.loadAll();
@@ -1832,10 +1851,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _pingBackend() async {
+    if (!mounted) return;
     final api = ref.read(apiClientProvider);
     try {
       final r = await api.health();
       final wasOk = _backendOk;
+      if (!mounted) return;
       setState(() => _backendOk = r['ok'] == true);
       if (_backendOk && !wasOk && _pendingVoiceText != null) {
         final t = _pendingVoiceText!;
@@ -1847,6 +1868,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         }
       }
     } catch (_) {
+      if (!mounted) return;
       setState(() => _backendOk = false);
     }
   }

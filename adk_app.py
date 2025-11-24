@@ -1,8 +1,12 @@
 import os
+import urllib.parse
+import urllib.request
+import json as _json
 import asyncio
 from typing import Dict, Any
 
 from google.adk.agents import LlmAgent
+from google.adk.tools import google_search
 from google.adk.runners import Runner
 from sessions.firestore_session_service import FirestoreSessionService
 from services.history_service import yesterday_range, get_sessions_by_date, get_events_for_session, search_events
@@ -98,6 +102,9 @@ def tool_chat_help() -> Dict[str, Any]:
     return {"kind": "chat_help", **chat_help()}
 
 
+    
+
+
 async def auto_compact_callback(callback_context):
     try:
         user_id = callback_context._invocation_context.user_id
@@ -122,6 +129,7 @@ agent = LlmAgent(
         "For decisions: reduce options and propose defaults. For time/energy: estimate_real_time, detect_hyperfocus, "
         "create_countdown, transition_helper, match_task_to_energy, detect_sensory_overload, routine_vs_novelty_balancer. "
         "Use load_firestore_memory to recall past conversations (e.g., yesterday)."
+        "If you do not have enough information to answer, use google_search to find reliable sources, then summarize for the user."
     ),
     tools=[
         tool_create_event,
@@ -144,6 +152,7 @@ agent = LlmAgent(
         body_double,
         body_double_checkin,
         dopamine_reframe,
+        google_search,
     ],
     after_agent_callback=auto_compact_callback,
 )
@@ -185,7 +194,8 @@ async def _run(user_id: str, session_id: str, text: str):
     return last_text, tool_results
 
 
-def adk_respond(user_id: str, session_id: str, text: str):
+
+def adk_respond(uid: str, session_id: str, text: str):
     import time
     tries = 2
     last_err = None
@@ -219,7 +229,7 @@ def adk_respond(user_id: str, session_id: str, text: str):
                 tool_res = dopamine_reframe(task_match)
                 return tool_res["reframe"], [tool_res]
 
-            return _loop.run_until_complete(_run(user_id, session_id, text))
+            return _loop.run_until_complete(_run(uid, session_id, text))
         except Exception as e:
             last_err = e
             s = str(e)

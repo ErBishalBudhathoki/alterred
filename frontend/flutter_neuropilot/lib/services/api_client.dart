@@ -110,9 +110,10 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> chatRespond(String text,
-      {String? sessionId}) async {
+      {String? sessionId, bool? googleSearch}) async {
     final payload = <String, dynamic>{'text': text};
     if (sessionId != null) payload['session_id'] = sessionId;
+    if (googleSearch != null) payload['google_search'] = googleSearch;
     final r = await _sendWithRetry(
         _client.post(
           Uri.parse('$baseUrl/chat/respond'),
@@ -125,9 +126,10 @@ class ApiClient {
   }
 
   Future<Map<String, dynamic>> chatCommand(String text,
-      {String? sessionId}) async {
+      {String? sessionId, bool? googleSearch}) async {
     final payload = <String, dynamic>{'text': text};
     if (sessionId != null) payload['session_id'] = sessionId;
+    if (googleSearch != null) payload['google_search'] = googleSearch;
     final r = await _sendWithRetry(
         _client.post(
           Uri.parse('$baseUrl/chat/command'),

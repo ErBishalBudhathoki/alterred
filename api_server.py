@@ -26,6 +26,7 @@ from services.a2a_service import connect_partner, post_update
 from services.metrics_service import compute_daily_overview
 from services.calendar_mcp import list_events_today, check_mcp_ready
 from adk_app import adk_respond
+from google.adk.tools import google_search
 from services.chat_commands import parse as parse_chat_command, execute as execute_chat_command, help as chat_help
 
 app = FastAPI(title="NeuroPilot API")
@@ -217,7 +218,7 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
         # Graceful overload feedback
         if "UNAVAILABLE" in msg or "overloaded" in msg:
             return {"text": "The model is temporarily overloaded. Please try again in a moment.", "tools": [], "session_id": session_id, "error": "model_overloaded", "error_detail": err}
-        # Fallback: attempt direct calendar intent parse & create when user asks calendar
+        # Fallbacks: calendar intent, then optional Google Search when enabled
         try:
             low = text.lower()
             if "calendar" in low or "event" in low or "add an event" in low:
@@ -227,10 +228,43 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
                 if intent.get("ok") and intent.get("intent"):
                     i = intent["intent"]
                     res = asyncio.run(_create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description")))
-                    msg_nl = _nl_event_confirmation(
-                        i["summary"], i["start"], i["end"], i.get("location"), "your primary calendar"
-                    )
+                    msg_nl = _nl_event_confirmation(i["summary"], i["start"], i["end"], i.get("location"), "your primary calendar")
                     return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": res}], "session_id": session_id}
+            # Google Search fallback when enabled
+            # Do NOT use await in a sync handler; read flag from payload
+            use_search = bool(payload.get('google_search'))
+            if use_search:
+                try:
+                    gs = google_search(text)
+                except Exception as ge:
+                    gs = {"ok": False, "error": str(ge), "results": []}
+                ok = True
+                results = []
+                if isinstance(gs, dict):
+                    ok = bool(gs.get('ok', True))
+                    results = gs.get('results') or gs.get('items') or []
+                elif isinstance(gs, list):
+                    results = gs
+                else:
+                    try:
+                        results = getattr(gs, 'results', [])
+                    except Exception:
+                        results = []
+                if ok and results:
+                    tops = results[:3]
+                    def _title(x):
+                        return (x.get('title') if isinstance(x, dict) else str(x)) or ''
+                    def _link(x):
+                        return (x.get('link') if isinstance(x, dict) else '') or ''
+                    lines = [f"- {_title(r)}: {_link(r)}".rstrip(': ') for r in tops]
+                    msg_nl = "Here are a few things I found:\n" + "\n".join(lines)
+                    return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": gs}], "session_id": session_id}
+                else:
+                    detail = ''
+                    if isinstance(gs, dict):
+                        detail = gs.get('error') or ''
+                    msg_nl = "Google Search is enabled but unavailable." if detail else "No search results found."
+                    return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": gs}], "session_id": session_id}
         except Exception as fe:
             # include fallback error detail but do not crash
             err["fallback_error"] = str(fe)

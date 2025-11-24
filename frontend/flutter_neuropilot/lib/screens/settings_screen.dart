@@ -22,6 +22,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   double _pulseMaxFreq = 3.0;
   int? _pulseBaseColor;
   int? _pulseAlertColor;
+  bool _googleSearchEnabled = false;
 
   @override
   void initState() {
@@ -34,7 +35,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _pulseMaxFreq = p.getDouble('pulse_max_freq') ?? 3.0;
         _pulseBaseColor = p.getInt('pulse_base_color');
         _pulseAlertColor = p.getInt('pulse_alert_color');
+        _googleSearchEnabled = p.getBool('google_search_enabled') ?? false;
       });
+      ref.read(googleSearchEnabledProvider.notifier).state = _googleSearchEnabled;
     });
   }
 
@@ -49,6 +52,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (_pulseAlertColor != null) {
       await p.setInt('pulse_alert_color', _pulseAlertColor!);
     }
+    await p.setBool('google_search_enabled', _googleSearchEnabled);
   }
 
   Future<void> _logout() async {
@@ -157,6 +161,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ],
               ),
             ),
+            const SizedBox(height: DesignTokens.spacingLg),
+            Row(children: [
+              Expanded(
+                child: SwitchListTile(
+                  title: const Text('Google Search'),
+                  value: _googleSearchEnabled,
+                  onChanged: (v) async {
+                    setState(() => _googleSearchEnabled = v);
+                    ref.read(googleSearchEnabledProvider.notifier).state = v;
+                    await _savePrefs();
+                  },
+                ),
+              ),
+            ]),
             const SizedBox(height: DesignTokens.spacingLg),
             Text('Timer Pulse', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: DesignTokens.spacingMd),

@@ -34,7 +34,7 @@ final ensureChatSessionIdProvider = FutureProvider<String>((ref) async {
     final ts = DateTime.now().millisecondsSinceEpoch;
     // Avoid JS bitwise pitfalls and nextInt(0) by using a safe literal < 2^32
     final salt = rnd.nextInt(0xFFFFFFFF).toRadixString(16);
-    id = 'adk-' + ts.toString() + '-' + salt;
+    id = 'adk-$ts-$salt';
     await prefs.setString('chat_session_id', id);
   }
   ref.read(chatSessionIdProvider.notifier).state = id;
@@ -107,7 +107,7 @@ class ContextMemory {
     final top = scored.keys.toList()
       ..sort((a, b) => scored[b]!.compareTo(scored[a]!));
     final base = all.length <= window ? all : all.sublist(all.length - window);
-    final merged = <ChatMessage>[]..addAll(base);
+    final merged = [...base];
     for (final m in top) {
       if (!merged.contains(m)) merged.add(m);
       if (merged.length >= window * 2) break;
@@ -140,3 +140,12 @@ class ContextMemory {
 }
 
 final contextMemoryProvider = Provider<ContextMemory>((ref) => ContextMemory());
+
+final googleSearchEnabledProvider = StateProvider<bool>((ref) => false);
+
+final loadGoogleSearchEnabledProvider = FutureProvider<bool>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  final v = prefs.getBool('google_search_enabled') ?? false;
+  ref.read(googleSearchEnabledProvider.notifier).state = v;
+  return v;
+});

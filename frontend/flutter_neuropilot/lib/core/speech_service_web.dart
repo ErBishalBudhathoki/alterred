@@ -76,11 +76,7 @@ class _WebSpeech implements SpeechService {
             final item = result.getProperty<JSAny>(0.toJS) as JSObject;
             final transcriptAny = item.getProperty<JSAny>('transcript'.toJS);
             final tStr = transcriptAny.dartify()?.toString() ?? '';
-            debugPrint('WebSpeech: onresult idx=' +
-                idx.toString() +
-                ' transcript="' +
-                tStr +
-                '"');
+            debugPrint('WebSpeech: onresult idx=$idx transcript="$tStr"');
             if (tStr.isNotEmpty) {
               // Prefer longest observed transcript to avoid truncated finals
               if (tStr.length >= last.length) {
@@ -92,14 +88,14 @@ class _WebSpeech implements SpeechService {
             final finalVal = finalProp.dartify();
             final isFinal = finalVal is bool ? finalVal : false;
             debugPrint(
-                'WebSpeech: result isFinal=' + (isFinal ? 'true' : 'false'));
+                'WebSpeech: result isFinal=${isFinal ? 'true' : 'false'}');
             if (isFinal) {
               _running = false;
               _rec!.callMethod('stop'.toJS);
               if (!c.isCompleted) c.complete(last.isNotEmpty ? last : null);
             }
           } catch (e) {
-            debugPrint('WebSpeech: onresult error=' + e.toString());
+            debugPrint('WebSpeech: onresult error=${e.toString()}');
             _running = false;
             try {
               _rec!.callMethod('stop'.toJS);

@@ -33,6 +33,7 @@ class _MobileSpeech implements SpeechService {
           _errors++;
           _listening = false;
           _silenceTimer?.cancel();
+          _available = false;
           debugPrint('MobileSTT: initialize error=$err');
           try {
             _speech.cancel();
@@ -80,6 +81,9 @@ class _MobileSpeech implements SpeechService {
         if (!_available) return null;
       }
       if (_listening) await _speech.stop();
+      try {
+        await _speech.cancel();
+      } catch (_) {}
       _listening = true;
       _listenAttempts++;
       _listenStart = DateTime.now();
