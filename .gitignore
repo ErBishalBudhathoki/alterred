@@ -63,3 +63,6 @@ firebase-service-account.json
 *.track.dill*
 
 /scripts/run_local.sh
+
+# Documentation with potential secrets
+/docs/
