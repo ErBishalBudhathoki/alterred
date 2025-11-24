@@ -109,7 +109,7 @@ async def auto_compact_callback(callback_context):
         pass
 
 agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash")),
+    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-1.5-flash")),
     name="neuropilot_coordinator_adk",
     description="Coordinator agent that manages conversation and calendar operations",
     instruction=(
