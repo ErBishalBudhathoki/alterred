@@ -61,3 +61,5 @@ firebase-service-account.json
 # Compiler caches
 *.dill*
 *.track.dill*
+
+/scripts/run_local.sh

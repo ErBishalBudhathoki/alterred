@@ -22,7 +22,7 @@ def compact_session(user_id: str, app_name: str, session_id: str, overlap: int =
     tail = events[-(min(len(events), 20)):]  # last up to 20 events
     text = "\n".join([e.content[0].get("text", "") if isinstance(e.content, list) and e.content else "" for e in tail])
     client = _genai_client()
-    resp = client.models.generate_content(model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash"), contents=[{"role": "user", "parts": [{"text": f"Summarize concisely:\n{text}"}]}])
+    resp = client.models.generate_content(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest"), contents=[{"role": "user", "parts": [{"text": f"Summarize concisely:\n{text}"}]}])
     summary = getattr(resp, "text", "")
     db = get_client()
     db.collection("users").document(user_id).collection("compactions").document(session_id).set({

@@ -10,7 +10,7 @@ import '../screens/signup_screen.dart';
 
 class Routes {
   static const home = '/';
-  static const chat = '/';
+  static const chat = '/chat';
   static const splash = '/splash';
   static const login = '/login';
   static const signup = '/signup';
@@ -21,6 +21,7 @@ class Routes {
 
   static Map<String, WidgetBuilder> get map => {
         home: (_) => const ChatScreen(),
+        chat: (_) => const ChatScreen(),
         splash: (_) => const SplashScreen(),
         login: (_) => const LoginScreen(),
         signup: (_) => const SignupScreen(),

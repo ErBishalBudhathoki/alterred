@@ -239,7 +239,7 @@ def set_session_id(session_id: str):
 
 
 coordinator_agent = Agent(
-    model='gemini-2.5-flash',
+    model='models/gemini-flash-latest',
     name='neuropilot_coordinator',
     description="Main orchestrator for NeuroPilot executive function support system",
     instruction="""You are NeuroPilot, an AI companion designed specifically for neurodivergent adults 
@@ -267,7 +267,7 @@ coordinator_agent = Agent(
 
 # TaskFlow Agent (Loop - continuous task support)
 taskflow_agent = Agent(
-    model='gemini-2.5-flash',
+    model='models/gemini-flash-latest',
     name='taskflow_agent',
     description="Breaks down tasks, provides body doubling, optimizes for dopamine",
     instruction="""You are the TaskFlow specialist. Your job is to:
@@ -292,7 +292,7 @@ taskflow_agent = Agent(
 
 # Time Perception Agent (Parallel - monitors time continuously)
 time_perception_agent = Agent(
-    model='gemini-2.5-flash',
+    model='models/gemini-flash-latest',
     name='time_perception_agent',
     description="Compensates for time blindness and prevents hyperfocus exhaustion",
     instruction="""You are the Time Perception specialist. You help with:
@@ -318,7 +318,7 @@ time_perception_agent = Agent(
 
 # Energy & Sensory Management Agent (Loop + Memory Bank)
 energy_agent = Agent(
-    model='gemini-2.5-flash',
+    model='models/gemini-flash-latest',
     name='energy_sensory_agent',
     description="Tracks energy patterns, prevents burnout, manages sensory needs",
     instruction="""You are the Energy & Sensory specialist. You:
@@ -346,7 +346,7 @@ energy_agent = Agent(
 
 # Decision Support Agent (Sequential - guides through choices)
 decision_agent = Agent(
-    model='gemini-2.5-flash',
+    model='models/gemini-flash-latest',
     name='decision_support_agent',
     description="Breaks through choice paralysis and decision fatigue",
     instruction="""You are the Decision Support specialist. You help with:
@@ -371,7 +371,7 @@ decision_agent = Agent(
 
 # External Brain Agent (Long-running + A2A)
 external_brain_agent = Agent(
-    model='gemini-2.5-flash',
+    model='models/gemini-flash-latest',
     name='external_brain_agent',
     description="Persistent memory, context restoration, accountability via A2A",
     instruction="""You are the External Brain specialist. You:

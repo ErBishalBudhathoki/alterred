@@ -13,7 +13,7 @@ def a2a_connect(partner_id: str) -> dict:
 
 
 external_brain_agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash")),
+    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest")),
     name="external_brain_agent",
     instruction="Capture notes, restore context, and coordinate with accountability partners.",
     tools=[capture_voice_note, restore_context, a2a_connect],

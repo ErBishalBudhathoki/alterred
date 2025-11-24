@@ -179,7 +179,7 @@ def respond(user_message: str, memory, session_id: str = "session") -> Dict[str,
     ]
 
     try:
-        gen = client.models.generate_content(model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash"), contents=contents)
+        gen = client.models.generate_content(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest"), contents=contents)
         text = getattr(gen, "text", "")
     except Exception:
         text = "I attempted to process your request. Based on the tools: \n" + str(results)[:800]
@@ -195,7 +195,7 @@ def summarize_history(memory, session_id: str):
         formatted = "\n".join([f"{m.get('role')}: {m.get('text')}" for m in msgs])
         client = _genai_client()
         resp = client.models.generate_content(
-            model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash"),
+            model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest"),
             contents=[{"role": "user", "parts": [{"text": f"Summarize concisely:\n{formatted}"}]}]
         )
         summary = getattr(resp, "text", "")

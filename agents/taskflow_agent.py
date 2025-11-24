@@ -134,7 +134,7 @@ def schedule_tasks(items: list, energy: int, deadline_weights: list | None = Non
 
 
 taskflow_agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash")),
+    model=Gemini(model=os.getenv("DEFAULT_MODEL", "models/gemini-flash-latest")),
     name="taskflow_agent",
     instruction="Break tasks into micro-steps, provide body doubling, reframe for dopamine, and schedule by energy/deadline.",
     tools=[atomize_task, dopamine_reframe, body_double, just_in_time_prompt, schedule_tasks, body_double_checkin],

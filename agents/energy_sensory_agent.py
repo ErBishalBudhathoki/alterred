@@ -15,7 +15,7 @@ def routine_vs_novelty_balancer(day_context: str) -> dict:
 
 
 energy_sensory_agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash")),
+    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest")),
     name="energy_sensory_agent",
     instruction="Track energy, detect sensory overload, balance routine and novelty, and recommend tasks.",
     tools=[match_task_to_energy, detect_sensory_overload, routine_vs_novelty_balancer],

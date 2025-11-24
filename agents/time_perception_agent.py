@@ -36,7 +36,7 @@ def transition_helper(next_event: str) -> dict:
 
 
 time_perception_agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash")),
+    model=Gemini(model=os.getenv("DEFAULT_MODEL", "models/gemini-flash-latest")),
     name="time_perception_agent",
     instruction="You are a time perception agent. Your goal is to help users manage their time. When a user asks to set a timer or countdown, you MUST use the `create_countdown` tool. Do not ask for a specific time or date, the tool will handle it. You can also calibrate time estimates, protect from hyperfocus, and guide transitions.",
     tools=[estimate_real_time, create_countdown, detect_hyperfocus, transition_helper],

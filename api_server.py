@@ -1,5 +1,9 @@
 import os
 from uuid import uuid4
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import FastAPI, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
@@ -203,7 +207,7 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
         msg = str(e)
         if "UNAVAILABLE" in msg or "overloaded" in msg:
             return {"text": "The model is temporarily overloaded. Please try again in a moment.", "tools": [], "session_id": session_id, "error": "model_overloaded"}
-        return {"text": "An error occurred while processing your request.", "tools": [], "session_id": session_id, "error": msg}
+        return {"text": f"An error occurred: {msg}", "tools": [], "session_id": session_id, "error": msg}
 
 
 @app.post("/chat/command")

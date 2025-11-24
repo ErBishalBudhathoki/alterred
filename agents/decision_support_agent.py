@@ -22,7 +22,7 @@ def paralysis_protocol(options: list) -> dict:
 
 
 decision_support_agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash")),
+    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest")),
     name="decision_support_agent",
     instruction="Reduce choices, set deadlines, generate defaults, and match motivation.",
     tools=[reduce_options, default_generator, motivation_matcher, paralysis_protocol],

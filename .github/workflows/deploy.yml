@@ -57,7 +57,7 @@ jobs:
             GCP_LOCATION=${{ vars.REGION }}
             GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
             GOOGLE_CLOUD_LOCATION=${{ vars.REGION }}
-            DEFAULT_MODEL=gemini-1.5-flash
+            DEFAULT_MODEL=gemini-flash-latest
             GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
 
       # Frontend Deployment

@@ -45,6 +45,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
       if (next.hasValue) {
         Navigator.of(context)
             .pushNamedAndRemoveUntil(next.value!, (r) => false);
+      } else if (next.hasError) {
+        debugPrint('Navigation error: ${next.error}');
+        // Fallback to login on error
+        Navigator.of(context).pushNamedAndRemoveUntil('/login', (r) => false);
       }
     });
 
