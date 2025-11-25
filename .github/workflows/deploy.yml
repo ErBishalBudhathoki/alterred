@@ -7,10 +7,9 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_ID: neuropilot-23fb5
-  REGION: australia-southeast1
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.REGION }}
   SERVICE_NAME: neuropilot-api
-  REPOSITORY: neuropilot-api
 
 jobs:
   deploy:
@@ -63,6 +62,10 @@ jobs:
             GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
             ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}
             OAUTH_REDIRECT_URI=${{ vars.OAUTH_REDIRECT_URI }}
+
+      - name: Verify Cloud Run service
+        run: |
+          gcloud run services describe "${{ env.SERVICE_NAME }}" --region "${{ env.REGION }}" --format="value(status.url)" || exit 1
 
       # Frontend Deployment
       - name: Setup Flutter

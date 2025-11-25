@@ -1,5 +1,6 @@
 google-adk
 google-genai
+google-generativeai
 fastapi
 uvicorn
 python-dotenv
@@ -7,3 +8,4 @@ firebase-admin
 cryptography
 google-auth-oauthlib
 requests
+mcp

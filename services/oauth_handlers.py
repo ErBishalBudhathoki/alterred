@@ -94,14 +94,13 @@ class GoogleOAuthHandler:
             
             credentials = flow.credentials
             
-            # Calculate expiry timestamp
-            expires_at = datetime.utcnow() + timedelta(seconds=credentials.expiry.timestamp())
-            
+            # Use credential expiry timestamp as ISO string
+            expires_at = credentials.expiry.isoformat() if getattr(credentials, "expiry", None) else (datetime.utcnow() + timedelta(hours=1)).isoformat()
             return {
                 "ok": True,
                 "access_token": credentials.token,
                 "refresh_token": credentials.refresh_token,
-                "expires_at": expires_at.isoformat(),
+                "expires_at": expires_at,
                 "scopes": credentials.scopes
             }
         except Exception as e:
