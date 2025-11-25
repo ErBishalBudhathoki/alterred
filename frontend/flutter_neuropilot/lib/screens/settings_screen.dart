@@ -28,27 +28,27 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   int? _pulseAlertColor;
   bool _googleSearchEnabled = false;
   bool _firestoreSyncEnabled = false;
-  
+
   // Calendar OAuth state
   bool _calendarConnected = false;
   bool _loadingCalendarStatus = true;
-  
+
   // API Key state
   bool _hasCustomApiKey = false;
   bool _loadingApiKeyStatus = true;
   String _apiKeyInput = '';
   bool _validatingApiKey = false;
-  
+
   // OAuth service
   final _oauthService = OAuthService();
 
   @override
   void initState() {
     super.initState();
-    
+
     // Initialize OAuth service with callback handler
     _oauthService.initialize(onCallback: _handleOAuthCallback);
-    
+
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final p = await SharedPreferences.getInstance();
       setState(() {
@@ -64,10 +64,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           _googleSearchEnabled;
       ref.read(firestoreSyncEnabledProvider.notifier).state =
           _firestoreSyncEnabled;
-      
+
       // Load calendar status
       _loadCalendarStatus();
-      
+
       // Load API key status
       _loadApiKeyStatus();
     });
@@ -106,7 +106,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _loadCalendarStatus() async {
     try {
-      final response = await ref.read(apiClientProvider).get('/auth/google/calendar/status');
+      final response =
+          await ref.read(apiClientProvider).get('/auth/google/calendar/status');
       if (mounted && response['ok'] == true) {
         setState(() {
           _calendarConnected = response['connected'] == true;
@@ -122,24 +123,50 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _connectCalendar() async {
     try {
+      // Ensure auth token is available
+      await ref.read(idTokenSyncProvider.future);
       // Determine platform
-      final platform = kIsWeb ? 'web' : 'mobile';
-      
+      const platform = kIsWeb ? 'web' : 'mobile';
+
       // Get authorization URL from backend
-      final response = await ref.read(apiClientProvider).get(
-        '/auth/google/calendar?platform=$platform'
-      );
-      
+      final response = await ref
+          .read(apiClientProvider)
+          .get('/auth/google/calendar?platform=$platform');
+
       if (response['ok'] == true && response['authorization_url'] != null) {
         final authUrl = response['authorization_url'];
-        
+
         // Launch OAuth flow
         final launched = await _oauthService.startOAuthFlow(authUrl);
-        
+
         if (!launched && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Failed to open authorization page')),
           );
+        }
+
+        // For web flows where callback returns to backend, poll connection status
+        if (mounted && kIsWeb) {
+          var attempts = 0;
+          const maxAttempts = 30; // ~60 seconds
+          while (attempts < maxAttempts) {
+            await Future.delayed(const Duration(seconds: 2));
+            try {
+              final status = await ref
+                  .read(apiClientProvider)
+                  .get('/auth/google/calendar/status');
+              if (status['ok'] == true && status['connected'] == true) {
+                if (!mounted) break;
+                setState(() => _calendarConnected = true);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('Calendar connected successfully!')),
+                );
+                break;
+              }
+            } catch (_) {}
+            attempts++;
+          }
         }
       }
     } catch (e) {
@@ -158,7 +185,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       final code = _oauthService.handleWebCallback(callbackUri);
       final state = _oauthService.extractState(callbackUri);
       final error = _oauthService.extractError(callbackUri);
-      
+
       if (error != null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -167,7 +194,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         }
         return;
       }
-      
+
       if (code == null || state == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -176,12 +203,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         }
         return;
       }
-      
+
       // Exchange code for tokens on backend
-      final response = await ref.read(apiClientProvider).get(
-        '/auth/google/calendar/callback?code=$code&state=$state'
-      );
-      
+      final response = await ref
+          .read(apiClientProvider)
+          .get('/auth/google/calendar/callback?code=$code&state=$state');
+
       if (response['ok'] == true) {
         setState(() => _calendarConnected = true);
         if (mounted) {
@@ -227,7 +254,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _loadApiKeyStatus() async {
     try {
-      final response = await ref.read(apiClientProvider).get('/settings/api-key/status');
+      final response =
+          await ref.read(apiClientProvider).get('/settings/api-key/status');
       if (mounted && response['ok'] == true) {
         setState(() {
           _hasCustomApiKey = response['has_custom_key'] == true;
@@ -250,15 +278,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
 
     setState(() => _validatingApiKey = true);
-    
+
     try {
       final response = await ref.read(apiClientProvider).post(
         '/settings/api-key',
         {'api_key': _apiKeyInput.trim()},
       );
-      
+
       setState(() => _validatingApiKey = false);
-      
+
       if (response['ok'] == true) {
         setState(() {
           _hasCustomApiKey = true;
@@ -272,7 +300,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(response['error'] ?? 'Failed to save API key')),
+            SnackBar(
+                content: Text(response['error'] ?? 'Failed to save API key')),
           );
         }
       }
@@ -378,7 +407,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               const SizedBox(height: DesignTokens.spacingLg),
             ],
-            
+
             // Calendar Integration Section
             if (user != null) ...[
               Text('Calendar Integration',
@@ -423,8 +452,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Text(
-                                _calendarConnected ? 'Connected' : 'Not Connected',
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                _calendarConnected
+                                    ? 'Connected'
+                                    : 'Not Connected',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
                                       color: _calendarConnected
                                           ? Theme.of(context)
                                               .colorScheme
@@ -464,7 +498,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               const SizedBox(height: DesignTokens.spacingLg),
             ],
-            
+
             // API Key Configuration Section
             if (user != null) ...[
               Text('API Configuration',
@@ -509,8 +543,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                 borderRadius: BorderRadius.circular(12),
                               ),
                               child: Text(
-                                _hasCustomApiKey ? 'Custom Key' : 'System Default',
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                _hasCustomApiKey
+                                    ? 'Custom Key'
+                                    : 'System Default',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
                                       color: _hasCustomApiKey
                                           ? Theme.of(context)
                                               .colorScheme
@@ -549,7 +588,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                       ),
                                       actions: [
                                         TextButton(
-                                          onPressed: () => Navigator.pop(context),
+                                          onPressed: () =>
+                                              Navigator.pop(context),
                                           child: const Text('Cancel'),
                                         ),
                                         TextButton(
@@ -587,9 +627,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           children: [
                             Expanded(
                               child: NpButton(
-                                label: _validatingApiKey ? 'Validating...' : 'Save API Key',
+                                label: _validatingApiKey
+                                    ? 'Validating...'
+                                    : 'Save API Key',
                                 icon: _validatingApiKey ? null : Icons.save,
-                                onPressed: _validatingApiKey ? null : _saveApiKey,
+                                onPressed:
+                                    _validatingApiKey ? null : _saveApiKey,
                               ),
                             ),
                           ],
@@ -601,7 +644,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
               const SizedBox(height: DesignTokens.spacingLg),
             ],
-            
+
             Text(l.languageLabel,
                 style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: DesignTokens.spacingMd),

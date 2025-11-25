@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class AuthService {
   bool _initialized = false;
@@ -49,13 +50,18 @@ class AuthService {
 
   Future<UserCredential?> signInWithGoogle() async {
     try {
-      final g = GoogleSignIn();
-      final acc = await g.signIn();
-      if (acc == null) return null;
-      final auth = await acc.authentication;
-      final cred = GoogleAuthProvider.credential(
-          accessToken: auth.accessToken, idToken: auth.idToken);
-      return await FirebaseAuth.instance.signInWithCredential(cred);
+      if (kIsWeb) {
+        final provider = GoogleAuthProvider();
+        return await FirebaseAuth.instance.signInWithPopup(provider);
+      } else {
+        final g = GoogleSignIn();
+        final acc = await g.signIn();
+        if (acc == null) return null;
+        final auth = await acc.authentication;
+        final cred = GoogleAuthProvider.credential(
+            accessToken: auth.accessToken, idToken: auth.idToken);
+        return await FirebaseAuth.instance.signInWithCredential(cred);
+      }
     } catch (_) {
       return null;
     }

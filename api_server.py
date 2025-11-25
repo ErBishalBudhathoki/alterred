@@ -216,6 +216,10 @@ def api_calendar_events_today(request: Request):
 @app.get("/auth/google/calendar")
 def api_oauth_calendar_init(request: Request, platform: str = 'web'):
     """Initiate Google Calendar OAuth flow."""
+    # Require authenticated user for initiating OAuth
+    auth_header = request.headers.get("Authorization") if request else None
+    if not auth_header or not auth_header.lower().startswith("bearer "):
+        return JSONResponse(status_code=401, content={"ok": False, "error": "Missing Authorization"})
     uid = get_user_id_from_request(request) if request else _uid(None)
     
     try:
