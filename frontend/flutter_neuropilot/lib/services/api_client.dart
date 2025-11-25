@@ -146,6 +146,32 @@ class ApiClient {
     return _decodeEnsureOk(r);
   }
 
+  // Generic HTTP methods for new endpoints
+  Future<Map<String, dynamic>> get(String path) async {
+    final r = await _send(_client.get(
+      Uri.parse('$baseUrl$path'),
+      headers: _headers(),
+    ));
+    return _decodeEnsureOk(r);
+  }
+
+  Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body) async {
+    final r = await _send(_client.post(
+      Uri.parse('$baseUrl$path'),
+      headers: _headers(),
+      body: jsonEncode(body),
+    ));
+    return _decodeEnsureOk(r);
+  }
+
+  Future<Map<String, dynamic>> delete(String path) async {
+    final r = await _send(_client.delete(
+      Uri.parse('$baseUrl$path'),
+      headers: _headers(),
+    ));
+    return _decodeEnsureOk(r);
+  }
+
   Map<String, dynamic> _decodeEnsureOk(http.Response r) {
     final body = r.body.isEmpty ? '{}' : r.body;
     final map = jsonDecode(body) as Map<String, dynamic>;

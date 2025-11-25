@@ -25,11 +25,23 @@ from services.external_brain_store import store_voice_task, get_context, list_vo
 from services.a2a_service import connect_partner, post_update
 from services.metrics_service import compute_daily_overview
 from services.calendar_mcp import list_events_today, check_mcp_ready
+from services.oauth_handlers import GoogleOAuthHandler
+from services.user_settings import UserSettings
 from adk_app import adk_respond
-from google.adk.tools import google_search
+try:
+    from google.adk.tools.google_search_tool import GoogleSearchTool
+    from google.adk.agents import LlmAgent
+    from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.adk.models.google_llm import Gemini
+    from google.genai import types
+    _SEARCH_TOOL = GoogleSearchTool(bypass_multi_tools_limit=True)
+except ImportError:
+    _SEARCH_TOOL = None
 from services.chat_commands import parse as parse_chat_command, execute as execute_chat_command, help as chat_help
 
-app = FastAPI(title="NeuroPilot API")
+
+app = FastAPI(title="Altered API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -62,7 +74,7 @@ def health():
 def sessions_yesterday(request: Request, user_id: str | None = None):
     start, end = yesterday_range()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
-    sessions = get_sessions_by_date(uid, "neuropilot", start, end)
+    sessions = get_sessions_by_date(uid, "altered", start, end)
     return {"sessions": sessions}
 
 
@@ -70,7 +82,7 @@ def sessions_yesterday(request: Request, user_id: str | None = None):
 def session_events(request: Request, session_id: str, user_id: str | None = None):
     start, end = yesterday_range()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
-    events = get_events_for_session(uid, "neuropilot", session_id, start, end)
+    events = get_events_for_session(uid, "altered", session_id, start, end)
     return {"events": events}
 
 
@@ -182,18 +194,166 @@ def api_memory_patterns(request: Request, user_id: str | None = None):
 def api_memory_compact(request: Request, payload: Dict[str, Any] = Body(...)):
     uid = get_user_id_from_request(request) if request else _uid(None)
     session_id = payload.get("session_id")
-    res = compact_session(uid, "neuropilot", session_id)
+    res = compact_session(uid, "altered", session_id)
     return res
 
 
+
 @app.get("/calendar/ready")
-def api_calendar_ready():
-    return check_mcp_ready()
+def api_calendar_ready(request: Request):
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    return check_mcp_ready(user_id=uid)
 
 
 @app.get("/calendar/events/today")
-def api_calendar_events_today():
-    return list_events_today("primary")
+def api_calendar_events_today(request: Request):
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    return list_events_today("primary", user_id=uid)
+
+
+# ===== OAuth Endpoints =====
+
+@app.get("/auth/google/calendar")
+def api_oauth_calendar_init(request: Request, platform: str = 'web'):
+    """Initiate Google Calendar OAuth flow."""
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    
+    try:
+        oauth_handler = GoogleOAuthHandler()
+        
+        # Use platform-specific redirect URI
+        redirect_uri = None
+        if platform == 'mobile':
+            redirect_uri = 'altered://oauth-callback'
+        
+        # Use user_id as state for CSRF protection
+        authorization_url = oauth_handler.get_authorization_url(
+            state=uid,
+            redirect_uri=redirect_uri
+        )
+        
+        return {"ok": True, "authorization_url": authorization_url}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.get("/auth/google/calendar/callback")
+def api_oauth_calendar_callback(request: Request, code: str, state: str):
+    """Handle OAuth callback and store tokens."""
+    try:
+        # Verify state matches user_id (basic CSRF protection)
+        uid = state
+        
+        oauth_handler = GoogleOAuthHandler()
+        token_result = oauth_handler.exchange_code_for_tokens(code)
+        
+        if not token_result.get("ok"):
+            return JSONResponse(status_code=400, content=token_result)
+        
+        # Store tokens in Firestore (encrypted)
+        user_settings = UserSettings(uid)
+        store_result = user_settings.save_oauth_tokens(
+            provider="google_calendar",
+            access_token=token_result["access_token"],
+            refresh_token=token_result["refresh_token"],
+            expires_at=token_result["expires_at"],
+            scopes=token_result["scopes"]
+        )
+        
+        if not store_result.get("ok"):
+            return JSONResponse(status_code=500, content=store_result)
+        
+        # Return success page or redirect to app
+        return {"ok": True, "message": "Calendar connected successfully"}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.delete("/auth/google/calendar")
+def api_oauth_calendar_revoke(request: Request):
+    """Revoke calendar access and delete tokens."""
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    
+    try:
+        user_settings = UserSettings(uid)
+        
+        # Get tokens to revoke
+        tokens = user_settings.get_oauth_tokens("google_calendar")
+        
+        if tokens:
+            # Revoke access token
+            oauth_handler = GoogleOAuthHandler()
+            oauth_handler.revoke_token(tokens["access_token"])
+        
+        # Delete tokens from Firestore
+        delete_result = user_settings.delete_oauth_tokens("google_calendar")
+        
+        return delete_result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.get("/auth/google/calendar/status")
+def api_oauth_calendar_status(request: Request):
+    """Check if user has connected calendar."""
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    
+    try:
+        user_settings = UserSettings(uid)
+        connected = user_settings.is_oauth_connected("google_calendar")
+        
+        return {"ok": True, "connected": connected}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+# ===== API Key Management Endpoints =====
+
+@app.post("/settings/api-key")
+def api_save_api_key(request: Request, payload: Dict[str, Any] = Body(...)):
+    """Save user's custom Gemini API key."""
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    api_key = payload.get("api_key", "")
+    
+    if not api_key:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "API key is required"})
+    
+    try:
+        user_settings = UserSettings(uid)
+        result = user_settings.save_api_key(api_key)
+        
+        return result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.get("/settings/api-key/status")
+def api_api_key_status(request: Request):
+    """Check if user has custom API key."""
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    
+    try:
+        user_settings = UserSettings(uid)
+        has_key = user_settings.has_custom_api_key()
+        
+        return {"ok": True, "has_custom_key": has_key}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.delete("/settings/api-key")
+def api_delete_api_key(request: Request):
+    """Remove user's custom API key."""
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    
+    try:
+        user_settings = UserSettings(uid)
+        result = user_settings.delete_api_key()
+        
+        return result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
 
 
 @app.post("/chat/respond")
@@ -230,41 +390,39 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
                     res = asyncio.run(_create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description")))
                     msg_nl = _nl_event_confirmation(i["summary"], i["start"], i["end"], i.get("location"), "your primary calendar")
                     return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": res}], "session_id": session_id}
-            # Google Search fallback when enabled
-            # Do NOT use await in a sync handler; read flag from payload
             use_search = bool(payload.get('google_search'))
             if use_search:
+                if _SEARCH_TOOL is None:
+                    msg_nl = "Google Search is enabled but unavailable."
+                    return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": {"ok": False, "error": "google.adk.tools not installed"}}], "session_id": session_id}
                 try:
-                    gs = google_search(text)
+                    search_agent = LlmAgent(
+                        model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")),
+                        name="SearchAgent",
+                        instruction="Use Google Search to find reliable sources and provide concise summaries.",
+                        tools=[_SEARCH_TOOL],
+                    )
+                    runner = Runner(agent=search_agent, app_name="altered", session_service=InMemorySessionService())
+                    content = types.Content(role="user", parts=[types.Part(text=text)])
+                    last_text = ""
+                    tool_results: list = []
+                    import asyncio as _asyncio
+                    async def _run():
+                        async for ev in runner.run_async(user_id=uid, session_id=session_id, new_message=content):
+                            if ev.content and ev.content.parts:
+                                t = ev.content.parts[0].text
+                                if t and t != "None":
+                                    last_text = t
+                            if getattr(ev, "actions", None) and getattr(ev.actions, "tools", None):
+                                for tl in ev.actions.tools:
+                                    tool_results.append(tl)
+                        return last_text, tool_results
+                    last_text, tool_results = _asyncio.run(_run())
+                    msg_nl = last_text or "Here are a few things I found."
+                    return {"text": msg_nl, "tools": tool_results, "session_id": session_id}
                 except Exception as ge:
-                    gs = {"ok": False, "error": str(ge), "results": []}
-                ok = True
-                results = []
-                if isinstance(gs, dict):
-                    ok = bool(gs.get('ok', True))
-                    results = gs.get('results') or gs.get('items') or []
-                elif isinstance(gs, list):
-                    results = gs
-                else:
-                    try:
-                        results = getattr(gs, 'results', [])
-                    except Exception:
-                        results = []
-                if ok and results:
-                    tops = results[:3]
-                    def _title(x):
-                        return (x.get('title') if isinstance(x, dict) else str(x)) or ''
-                    def _link(x):
-                        return (x.get('link') if isinstance(x, dict) else '') or ''
-                    lines = [f"- {_title(r)}: {_link(r)}".rstrip(': ') for r in tops]
-                    msg_nl = "Here are a few things I found:\n" + "\n".join(lines)
-                    return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": gs}], "session_id": session_id}
-                else:
-                    detail = ''
-                    if isinstance(gs, dict):
-                        detail = gs.get('error') or ''
-                    msg_nl = "Google Search is enabled but unavailable." if detail else "No search results found."
-                    return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": gs}], "session_id": session_id}
+                    msg_nl = f"Google Search fallback error: {str(ge)}"
+                    return {"text": msg_nl, "tools": [{"ui_mode": "internal", "error": str(ge)}], "session_id": session_id}
         except Exception as fe:
             # include fallback error detail but do not crash
             err["fallback_error"] = str(fe)
