@@ -6,3 +6,4 @@ python-dotenv
 firebase-admin
 cryptography
 google-auth-oauthlib
+requests
