@@ -52,7 +52,7 @@ def respond(user_message: str, memory, session_id: str = "session") -> Dict[str,
 
     client = _genai_client()
     prompt = (
-        "You are NeuroPilot, an empathetic executive function companion. Given the user's message and tool outputs, "
+        "You are Altered, an empathetic executive function companion. Given the user's message and tool outputs, "
         "compose a concise, supportive response with 2-4 actionable micro-steps and clear next check-in. "
         "Avoid long paragraphs. Celebrate small wins."
     )

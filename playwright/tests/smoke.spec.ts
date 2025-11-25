@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('NeuroPilot web smoke', () => {
+test.describe('Altered web smoke', () => {
   test('home loads and title is correct', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveTitle(/NeuroPilot/);
+    await expect(page).toHaveTitle(/Altered/);
     await page.waitForLoadState('networkidle');
     const hasCanvas = await page.evaluate(() => !!document.querySelector('canvas, flt-glass-pane'));
     expect(hasCanvas).toBeTruthy();

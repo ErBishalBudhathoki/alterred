@@ -1,4 +1,4 @@
-# NeuroPilot - Complete Resource Guide & Learning Path
+# Altered - Complete Resource Guide & Learning Path
 
 ## 🎓 ESSENTIAL LEARNING RESOURCES
 

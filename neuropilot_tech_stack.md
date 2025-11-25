@@ -1,4 +1,4 @@
-# NeuroPilot - Complete Technical Stack & Implementation Guide
+# Altered - Complete Technical Stack & Implementation Guide
 
 ## 🎨 USER INTERFACE → BACKEND → AGENTS FLOW
 
@@ -24,7 +24,7 @@
 │              (Vertex AI Agent Engine)                           │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────┐      │
-│  │         NeuroPilot Coordinator Agent                 │      │
+│  │         Altered Coordinator Agent                 │      │
 │  │         (Gemini 2.0 Flash)                           │      │
 │  └────┬────────────────────────────────────────────┬────┘      │
 │       │                                            │            │
@@ -1256,7 +1256,7 @@ external_brain_agent = Agent(
 ```
 Alice's Agent ←→ A2A Protocol Server ←→ Bob's Agent
      ↓                                        ↓
-Alice's NeuroPilot                    Bob's NeuroPilot
+Alice's Altered                    Bob's NeuroPilot
 ```
 
 ### **Implementation: A2A Agent-to-Agent Communication**
@@ -1868,7 +1868,7 @@ async def demo_a2a_coordination():
     print("\n4️⃣ Alice sends progress update...")
     await alice_coordinator.send_progress_update(
         'bob_002',
-        'Build NeuroPilot agents',
+        'Build Altered agents',
         progress=60,
         message="Making great progress! Finished 3 agents."
     )
@@ -1877,7 +1877,7 @@ async def demo_a2a_coordination():
     print("\n5️⃣ Alice sets up accountability check...")
     await alice_coordinator.send_accountability_check(
         'bob_002',
-        'Complete NeuroPilot capstone project',
+        'Complete Altered capstone project',
         deadline=datetime.now() + timedelta(days=7)
     )
     print("   Accountability request sent!")
@@ -2966,7 +2966,7 @@ Alice wants to co-work with Bob:
 │  ├── Hosted ADK runtime                                     │
 │  ├── Managed scaling                                        │
 │  ├── Observability built-in                                 │
-│  └── 6 NeuroPilot agents                                    │
+│  └── 6 Altered agents                                    │
 └────────────────┬────────────────────────────────────────────┘
                  │
       ┌──────────┼──────────┬────────────┐

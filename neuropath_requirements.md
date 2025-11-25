@@ -1,4 +1,4 @@
-NeuroPilot - Executive Function Companion for Neurodivergent Adults
+Altered - Executive Function Companion for Neurodivergent Adults
 Track: Agents for Good (Accessibility) 🎯 MOST INNOVATIVE
 The Problem: Neurodivergent adults struggle with executive dysfunction across 9 core areas including task initiation, working memory, time perception, emotion regulation, and planning JMIR Aging. Traditional productivity tools fail because ADHDers are motivated by urgency and struggle with decision fatigue, while autistic individuals need both routine AND flexibility SavingAdvice.com.
 The Breakthrough: This isn't a to-do list. It's an AI copilot that understands YOUR specific neurotype, works WITH your brain (not against it), and adapts in real-time to your energy levels, hyperfocus states, and sensory needs.

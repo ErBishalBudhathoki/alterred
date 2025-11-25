@@ -1,4 +1,4 @@
-# NeuroPilot - Executive Function Companion for Neurodivergent Adults
+# Altered - Executive Function Companion for Neurodivergent Adults
 ## Complete Development Plan (Nov 15 - Nov 29, 2025)
 
 ---
@@ -291,7 +291,7 @@ Tools: MCP (Calendar), Memory Bank, Code Execution
                      │
                      ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              NEUROPILOT COORDINATOR                         │
+│              ALTERED COORDINATOR                         │
 │         (Main Orchestrator - Gemini 2.0)                    │
 │  • Analyzes brain state                                     │
 │  • Routes to specialized agents                             │

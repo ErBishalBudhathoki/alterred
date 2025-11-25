@@ -43,7 +43,7 @@ def main():
     memory = FirestoreMemoryBank(user_id)
     memory.ensure_profile()
 
-    print("NeuroPilot (Terminal) — type /quit to exit")
+    print("Altered (Terminal) — type /quit to exit")
     print(f"Firebase connected: {bool(db)}")
     mcp_status = check_mcp_ready()
     if mcp_status.get("ok"):
@@ -111,7 +111,7 @@ def main():
             try:
                 start, end = yesterday_range()
                 uid = user_id
-                sessions = get_sessions_by_date(uid, "neuropilot", start, end)
+                sessions = get_sessions_by_date(uid, "altered", start, end)
                 print(f"Yesterday sessions ({len(sessions)}):")
                 for m in sessions:
                     sid = m.get("session_id")
@@ -136,7 +136,7 @@ def main():
             new_id = user_message.split(" ", 1)[1].strip()
             if new_id:
                 try:
-                    sess = storage.get_session("neuropilot", user_id, new_id)
+                    sess = storage.get_session("altered", user_id, new_id)
                     print(f"Resumed session: {new_id} (events={len(sess.get('events', []))})")
                     session_id = new_id
                 except Exception as e:
@@ -146,7 +146,7 @@ def main():
         if user_message.lower().startswith("/compact now "):
             sid = user_message.split(" ", 2)[2].strip()
             try:
-                res = compact_session(user_id, "neuropilot", sid)
+                res = compact_session(user_id, "altered", sid)
                 print(f"Compaction: {res.get('ok')} summary length={len(res.get('summary', ''))}")
             except Exception as e:
                 print(f"Compaction error: {e}")
@@ -278,11 +278,11 @@ def main():
         record_agent_latency(end_ms - start_ms)
 
         try:
-            maybe_auto_compact(user_id, "neuropilot", session_id)
+            maybe_auto_compact(user_id, "altered", session_id)
         except Exception:
             pass
 
-        print(f"NeuroPilot: {text}")
+        print(f"altered: {text}")
 
         memory.store_message(session_id, "assistant", text, tools_called)
         tool_results = tools_called

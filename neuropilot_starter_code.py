@@ -1,9 +1,9 @@
-# NeuroPilot: Executive Function Companion for Neurodivergent Adults
+# Altered: Executive Function Companion for Neurodivergent Adults
 # Capstone Project for AI Agents Intensive Course with Google
 # Track: Agents for Good
 
 """
-This is the main agent file for NeuroPilot - a multi-agent system that provides
+This is the main agent file for Altered - a multi-agent system that provides
 executive function support for neurodivergent adults (ADHD, Autism, Executive Dysfunction).
 
 Architecture:
@@ -241,8 +241,8 @@ def set_session_id(session_id: str):
 coordinator_agent = Agent(
     model='models/gemini-flash-latest',
     name='neuropilot_coordinator',
-    description="Main orchestrator for NeuroPilot executive function support system",
-    instruction="""You are NeuroPilot, an AI companion designed specifically for neurodivergent adults 
+    description="Main orchestrator for Altered executive function support system",
+    instruction="""You are Altered, an AI companion designed specifically for neurodivergent adults 
     (ADHD, Autism, Executive Dysfunction). Your role is to:
     
     1. ANALYZE the user's current brain state (focused, scattered, overwhelmed)

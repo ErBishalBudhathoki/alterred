@@ -7,6 +7,7 @@ from typing import Dict, Any
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
+from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.runners import Runner
 from sessions.firestore_session_service import FirestoreSessionService
 from services.history_service import yesterday_range, get_sessions_by_date, get_events_for_session, search_events
@@ -41,12 +42,12 @@ def load_firestore_memory(query: str, timeframe: str = "yesterday") -> Dict[str,
     start, end = yesterday_range() if timeframe == "yesterday" else (None, None)
     if not start:
         return {"ok": False, "error": "Unsupported timeframe"}
-    sessions = get_sessions_by_date(user_id=os.getenv("USER") or "terminal_user", app_name="neuropilot", start_iso=start, end_iso=end)
+    sessions = get_sessions_by_date(user_id=os.getenv("USER") or "terminal_user", app_name="altered", start_iso=start, end_iso=end)
     snippets = []
     uid = os.getenv("USER") or "terminal_user"
     for m in sessions:
         sid = m.get("session_id")
-        evs = get_events_for_session(user_id=uid, app_name="neuropilot", session_id=sid, start_iso=start, end_iso=end)
+        evs = get_events_for_session(user_id=uid, app_name="altered", session_id=sid, start_iso=start, end_iso=end)
         hits = search_events(evs, query)
         for h in hits:
             snippets.append({"session_id": sid, **h})
@@ -56,7 +57,7 @@ def load_firestore_memory(query: str, timeframe: str = "yesterday") -> Dict[str,
 def preload_firestore_memory(timeframe: str = "yesterday") -> Dict[str, Any]:
     start, end = yesterday_range() if timeframe == "yesterday" else (None, None)
     uid = os.getenv("USER") or "terminal_user"
-    sessions = get_sessions_by_date(user_id=uid, app_name="neuropilot", start_iso=start, end_iso=end)
+    sessions = get_sessions_by_date(user_id=uid, app_name="altered", start_iso=start, end_iso=end)
     return {"ok": True, "sessions": sessions}
 
 
@@ -115,12 +116,14 @@ async def auto_compact_callback(callback_context):
     except Exception:
         pass
 
+search_tool = GoogleSearchTool(bypass_multi_tools_limit=True)
+
 agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest")),
+    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")),
     name="neuropilot_coordinator_adk",
     description="Coordinator agent that manages conversation and calendar operations",
     instruction=(
-        "You are NeuroPilot. You MUST use the body_double tool to start/stop sessions when requested. Do NOT just reply with text. "
+        "You are अल्टर्ड, a hyper-intelligent AI assistant. You MUST use the body_double tool to start/stop sessions when requested. Do NOT just reply with text. "
         "When receiving a system check-in prompt, you MUST use the body_double_checkin tool. "
         "Maintain context across turns. Prefer using chat tools to interpret natural commands: "
         "use tool_chat_command to execute CLI-equivalent operations and tool_chat_help to surface suggestions. "
@@ -152,13 +155,13 @@ agent = LlmAgent(
         body_double,
         body_double_checkin,
         dopamine_reframe,
-        google_search,
+        search_tool,
     ],
     after_agent_callback=auto_compact_callback,
 )
 
 session_service = FirestoreSessionService()
-runner = Runner(agent=agent, app_name="neuropilot", session_service=session_service)
+runner = Runner(agent=agent, app_name="altered", session_service=session_service)
 _loop = asyncio.new_event_loop()
 
 
