@@ -63,6 +63,9 @@ firebase-service-account.json
 *.track.dill*
 
 /scripts/run_local.sh
+/scripts/android_dev_run.sh
 
-# Documentation with potential secrets
+# Development and planning files
 /docs/
+task.md
+issues.md
