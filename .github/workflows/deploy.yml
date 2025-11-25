@@ -59,6 +59,10 @@ jobs:
             GOOGLE_CLOUD_LOCATION=${{ vars.REGION }}
             DEFAULT_MODEL=gemini-flash-latest
             GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
+            GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+            GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+            ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}
+            OAUTH_REDIRECT_URI=${{ vars.OAUTH_REDIRECT_URI }}
 
       # Frontend Deployment
       - name: Setup Flutter
