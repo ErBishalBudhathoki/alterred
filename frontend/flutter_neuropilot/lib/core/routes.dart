@@ -4,6 +4,7 @@ import '../screens/external_brain_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/health_screen.dart';
 import '../screens/chat_screen.dart';
+import '../screens/chat_history_screen.dart';
 import '../screens/splash_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/signup_screen.dart';
@@ -11,6 +12,7 @@ import '../screens/signup_screen.dart';
 class Routes {
   static const home = '/';
   static const chat = '/chat';
+  static const chats = '/chats';
   static const splash = '/splash';
   static const login = '/login';
   static const signup = '/signup';
@@ -22,6 +24,7 @@ class Routes {
   static Map<String, WidgetBuilder> get map => {
         // Note: '/' is handled by MaterialApp's home parameter
         chat: (_) => const ChatScreen(),
+        chats: (_) => const ChatHistoryScreen(),
         splash: (_) => const SplashScreen(),
         login: (_) => const LoginScreen(),
         signup: (_) => const SignupScreen(),

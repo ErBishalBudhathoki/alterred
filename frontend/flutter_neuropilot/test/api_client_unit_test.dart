@@ -6,7 +6,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:flutter_neuropilot/services/api_client.dart';
+import 'package:altered/services/api_client.dart';
 
 ApiClient _clientWith(MockClient mc) =>
     ApiClient(baseUrl: 'http://example', token: 't', client: mc);

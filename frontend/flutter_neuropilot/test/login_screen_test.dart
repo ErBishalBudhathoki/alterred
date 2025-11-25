@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_neuropilot/core/routes.dart';
+import 'package:altered/core/routes.dart';
 // Screens imported via Routes; direct imports not required here.
-import 'package:flutter_neuropilot/state/auth_state.dart';
-import 'package:flutter_neuropilot/core/components/np_button.dart';
-import 'package:flutter_neuropilot/l10n/app_localizations.dart';
+import 'package:altered/state/auth_state.dart';
+import 'package:altered/core/components/np_button.dart';
+import 'package:altered/l10n/app_localizations.dart';
 
 class _AuthControllerStub extends AuthController {
   _AuthControllerStub(super.ref);

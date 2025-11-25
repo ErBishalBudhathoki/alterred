@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_neuropilot/core/components/np_dialog.dart';
-import 'package:flutter_neuropilot/core/components/np_bottom_sheet.dart';
-import 'package:flutter_neuropilot/core/components/np_avatar.dart';
-import 'package:flutter_neuropilot/core/components/np_badge.dart';
-import 'package:flutter_neuropilot/core/components/np_switch.dart';
-import 'package:flutter_neuropilot/core/components/np_checkbox.dart';
-import 'package:flutter_neuropilot/core/components/np_radio.dart';
+import 'package:altered/core/components/np_dialog.dart';
+import 'package:altered/core/components/np_bottom_sheet.dart';
+import 'package:altered/core/components/np_avatar.dart';
+import 'package:altered/core/components/np_badge.dart';
+import 'package:altered/core/components/np_switch.dart';
+import 'package:altered/core/components/np_checkbox.dart';
+import 'package:altered/core/components/np_radio.dart';
 
 void main() {
   testWidgets('NpDialog shows and closes', (tester) async {

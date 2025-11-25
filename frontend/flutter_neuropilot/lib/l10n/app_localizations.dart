@@ -101,7 +101,7 @@ abstract class AppLocalizations {
   /// No description provided for @appTitle.
   ///
   /// In en, this message translates to:
-  /// **'NeuroPilot'**
+  /// **'Altered'**
   String get appTitle;
 
   /// No description provided for @homeTaskFlow.
@@ -463,6 +463,42 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Minimal Mode'**
   String get minimalModeLabel;
+
+  /// No description provided for @chatHistoryTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Chats'**
+  String get chatHistoryTitle;
+
+  /// No description provided for @newChatLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'New Chat'**
+  String get newChatLabel;
+
+  /// No description provided for @noChatsLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'No chats yet'**
+  String get noChatsLabel;
+
+  /// No description provided for @editChatTitleLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit chat title'**
+  String get editChatTitleLabel;
+
+  /// No description provided for @cancelLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Cancel'**
+  String get cancelLabel;
+
+  /// No description provided for @saveLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get saveLabel;
 }
 
 class _AppLocalizationsDelegate

@@ -1,4 +1,4 @@
-# Test Report – NeuroPilot (Flutter)
+# Test Report – Altered (Flutter)
 
 ## Summary
 - Scope: Unit, integration (API), UI interaction tests on mobile. Web excluded per project rules.

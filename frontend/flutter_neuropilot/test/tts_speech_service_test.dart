@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_neuropilot/core/tts_service_stub.dart' as tts_stub;
-import 'package:flutter_neuropilot/core/speech_service_stub.dart' as stt_stub;
+import 'package:altered/core/tts_service_stub.dart' as tts_stub;
+import 'package:altered/core/speech_service_stub.dart' as stt_stub;
 // Flutter test binding imported via flutter_test
 
 // Unit tests for speech/TTS stub implementations.

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_neuropilot/l10n/app_localizations.dart';
+import 'package:altered/l10n/app_localizations.dart';
 import '../core/components/np_app_bar.dart';
 import '../core/components/np_button.dart';
 import '../core/design_tokens.dart';
@@ -8,6 +8,8 @@ import '../state/session_state.dart';
 import '../state/auth_state.dart';
 import '../core/routes.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../state/chat_store.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -23,6 +25,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   int? _pulseBaseColor;
   int? _pulseAlertColor;
   bool _googleSearchEnabled = false;
+  bool _firestoreSyncEnabled = false;
 
   @override
   void initState() {
@@ -36,8 +39,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         _pulseBaseColor = p.getInt('pulse_base_color');
         _pulseAlertColor = p.getInt('pulse_alert_color');
         _googleSearchEnabled = p.getBool('google_search_enabled') ?? false;
+        _firestoreSyncEnabled = p.getBool('firestore_sync_enabled') ?? false;
       });
-      ref.read(googleSearchEnabledProvider.notifier).state = _googleSearchEnabled;
+      ref.read(googleSearchEnabledProvider.notifier).state =
+          _googleSearchEnabled;
+      ref.read(firestoreSyncEnabledProvider.notifier).state =
+          _firestoreSyncEnabled;
     });
   }
 
@@ -53,10 +60,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await p.setInt('pulse_alert_color', _pulseAlertColor!);
     }
     await p.setBool('google_search_enabled', _googleSearchEnabled);
+    await p.setBool('firestore_sync_enabled', _firestoreSyncEnabled);
   }
 
   Future<void> _logout() async {
     final ctl = ref.read(authControllerProvider);
+    final store = ref.read(chatStoreProvider);
+    try {
+      await store.disposeListeners();
+    } catch (_) {}
+    setState(() => _firestoreSyncEnabled = false);
+    ref.read(firestoreSyncEnabledProvider.notifier).state = false;
+    await _savePrefs();
     await ctl.signOut();
     if (mounted) {
       Navigator.of(context)
@@ -69,10 +84,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final l = AppLocalizations.of(context)!;
     final locale = ref.watch(localeProvider);
     final user = ref.watch(authUserProvider).value;
+    final projectId = Firebase.app().options.projectId;
 
     return Scaffold(
       appBar: NpAppBar(title: l.settingsTitle),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(DesignTokens.spacingLg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -126,6 +142,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         type: NpButtonType.destructive,
                         onPressed: _logout,
                       ),
+                      const SizedBox(height: DesignTokens.spacingSm),
+                      Text('Firebase: uid=${user.uid} project=$projectId',
+                          style: Theme.of(context).textTheme.labelSmall),
                     ],
                   ),
                 ),
@@ -172,6 +191,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ref.read(googleSearchEnabledProvider.notifier).state = v;
                     await _savePrefs();
                   },
+                ),
+              ),
+            ]),
+            const SizedBox(height: DesignTokens.spacingMd),
+            Row(children: [
+              Expanded(
+                child: SwitchListTile(
+                  title: const Text('Firestore Sync'),
+                  value: _firestoreSyncEnabled,
+                  subtitle:
+                      user == null ? const Text('Sign in required') : null,
+                  onChanged: user == null
+                      ? null
+                      : (v) async {
+                          setState(() => _firestoreSyncEnabled = v);
+                          ref
+                              .read(firestoreSyncEnabledProvider.notifier)
+                              .state = v;
+                          final store = ref.read(chatStoreProvider);
+                          if (v) {
+                            try {
+                              await store.attachSessionsListener();
+                            } catch (_) {}
+                          } else {
+                            await store.disposeListeners();
+                          }
+                          await _savePrefs();
+                        },
                 ),
               ),
             ]),

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_neuropilot/core/link_opener_stub.dart' as stub;
+import 'package:altered/core/link_opener_stub.dart' as stub;
 
 void main() {
   test('Link opener stub returns false', () async {

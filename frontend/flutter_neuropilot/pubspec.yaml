@@ -1,5 +1,5 @@
-name: flutter_neuropilot
-description: NeuroPilot mobile-first app (Flutter) with Riverpod state management
+name: altered
+description: Altered mobile-first app (Flutter) with Riverpod state management
 publish_to: 'none'
 version: 0.1.0+1
 
@@ -23,6 +23,7 @@ dependencies:
   firebase_auth: ^5.3.3
   google_sign_in: ^6.2.1
   uuid: ^4.5.2
+  cloud_firestore: ^5.4.4
 
 dev_dependencies:
   flutter_test:

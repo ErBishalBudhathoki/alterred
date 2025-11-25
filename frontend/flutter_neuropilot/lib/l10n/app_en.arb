@@ -1,5 +1,5 @@
 {
-  "appTitle": "NeuroPilot",
+  "appTitle": "Altered",
   "homeTaskFlow": "TaskFlow",
   "homeTime": "Time",
   "homeDecision": "Decision",
@@ -64,4 +64,11 @@
   "exampleOverview": "What is planned for today?",
   "focusModeLabel": "Focus Mode",
   "minimalModeLabel": "Minimal Mode"
+  ,
+  "chatHistoryTitle": "Chats",
+  "newChatLabel": "New Chat",
+  "noChatsLabel": "No chats yet",
+  "editChatTitleLabel": "Edit chat title",
+  "cancelLabel": "Cancel",
+  "saveLabel": "Save"
 }

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_neuropilot/l10n/app_localizations.dart';
+import 'package:altered/l10n/app_localizations.dart';
 
 import 'core/routes.dart';
 import 'core/firebase_env.dart';
@@ -25,7 +25,7 @@ class _AuthGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final navAsync = ref.watch(navigationProvider);
-    
+
     return navAsync.when(
       data: (route) {
         // Directly show the target screen without splash
@@ -50,7 +50,7 @@ class NeuroPilotApp extends ConsumerWidget {
     final locale = ref.watch(localeProvider);
     final saved = ref.watch(savedLocaleProvider).value;
     return MaterialApp(
-      title: 'NeuroPilot',
+      title: 'Altered',
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(

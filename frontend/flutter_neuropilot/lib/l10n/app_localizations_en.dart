@@ -9,7 +9,7 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
-  String get appTitle => 'NeuroPilot';
+  String get appTitle => 'Altered';
 
   @override
   String get homeTaskFlow => 'TaskFlow';
@@ -190,4 +190,22 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get minimalModeLabel => 'Minimal Mode';
+
+  @override
+  String get chatHistoryTitle => 'Chats';
+
+  @override
+  String get newChatLabel => 'New Chat';
+
+  @override
+  String get noChatsLabel => 'No chats yet';
+
+  @override
+  String get editChatTitleLabel => 'Edit chat title';
+
+  @override
+  String get cancelLabel => 'Cancel';
+
+  @override
+  String get saveLabel => 'Save';
 }

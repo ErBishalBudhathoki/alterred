@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_neuropilot/l10n/app_localizations.dart';
+import 'package:altered/l10n/app_localizations.dart';
 import '../core/design_tokens.dart';
 import '../state/session_state.dart';
 import '../core/components/np_button.dart';

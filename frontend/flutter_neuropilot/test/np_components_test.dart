@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_neuropilot/core/components/np_button.dart';
-import 'package:flutter_neuropilot/core/components/np_chip.dart';
-import 'package:flutter_neuropilot/core/components/np_snackbar.dart';
-import 'package:flutter_neuropilot/core/components/np_progress.dart';
+import 'package:altered/core/components/np_button.dart';
+import 'package:altered/core/components/np_chip.dart';
+import 'package:altered/core/components/np_snackbar.dart';
+import 'package:altered/core/components/np_progress.dart';
 
 void main() {
   testWidgets('NpButton renders and handles loading', (tester) async {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_neuropilot/core/components/np_liquid_ball.dart';
+import 'package:altered/core/components/np_liquid_ball.dart';
 
 void main() {
   testWidgets('NpLiquidBall builds and repaints on amplitude change', (tester) async {

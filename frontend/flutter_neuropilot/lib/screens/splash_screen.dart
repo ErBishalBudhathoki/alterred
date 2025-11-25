@@ -63,7 +63,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
             children: [
               const Icon(Icons.bolt, size: 72, color: DesignTokens.onPrimary),
               const SizedBox(height: DesignTokens.spacingSm),
-              const Text('NeuroPilot',
+              const Text('Altered',
                   style: TextStyle(
                       color: DesignTokens.onPrimary,
                       fontSize: 24,

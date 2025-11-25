@@ -1,5 +1,5 @@
 {
-  "appTitle": "न्यूरोपायलट",
+  "appTitle": "अल्टर्ड",
   "homeTaskFlow": "टास्कफ़्लो",
   "homeTime": "समय",
   "homeDecision": "निर्णय",
@@ -64,4 +64,11 @@
   "exampleOverview": "आज क्या प्लान है?",
   "focusModeLabel": "फोकस मोड",
   "minimalModeLabel": "मिनिमल मोड"
+  ,
+  "chatHistoryTitle": "चैट्स",
+  "newChatLabel": "नई चैट",
+  "noChatsLabel": "अभी कोई चैट नहीं",
+  "editChatTitleLabel": "चैट शीर्षक संपादित करें",
+  "cancelLabel": "रद्द करें",
+  "saveLabel": "सेव करें"
 }

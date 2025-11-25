@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_neuropilot/core/routes.dart';
+import 'package:altered/core/routes.dart';
 
 void main() {
   test('Routes map contains expected keys', () async {

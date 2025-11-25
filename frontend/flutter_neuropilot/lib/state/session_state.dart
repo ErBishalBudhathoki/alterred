@@ -149,3 +149,12 @@ final loadGoogleSearchEnabledProvider = FutureProvider<bool>((ref) async {
   ref.read(googleSearchEnabledProvider.notifier).state = v;
   return v;
 });
+
+final firestoreSyncEnabledProvider = StateProvider<bool>((ref) => false);
+
+final loadFirestoreSyncEnabledProvider = FutureProvider<bool>((ref) async {
+  final prefs = await SharedPreferences.getInstance();
+  final v = prefs.getBool('firestore_sync_enabled') ?? false;
+  ref.read(firestoreSyncEnabledProvider.notifier).state = v;
+  return v;
+});

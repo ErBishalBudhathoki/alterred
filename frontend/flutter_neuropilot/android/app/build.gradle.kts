@@ -28,8 +28,15 @@ val devGoogleServices = localProps.getProperty("firebase.google_services.dev")
 val prodGoogleServices = localProps.getProperty("firebase.google_services.prod")
     ?: (if (file(prodGoogleServicesDefault).exists()) prodGoogleServicesDefault else anyGoogleServicesFallback ?: prodGoogleServicesDefault)
 
+// Fallback to local file if not found in credentials dir
+val finalDevGoogleServices = if (file(devGoogleServices).exists()) devGoogleServices else "google-services.json"
+val finalProdGoogleServices = if (file(prodGoogleServices).exists()) prodGoogleServices else "google-services.json"
+
+println("Using Dev Google Services: $finalDevGoogleServices")
+println("Using Prod Google Services: $finalProdGoogleServices")
+
 tasks.register<Copy>("copyGoogleServicesDev") {
-    val src = file(devGoogleServices)
+    val src = file(finalDevGoogleServices)
     if (src.exists()) {
         from(src)
         into("src/development")
@@ -38,7 +45,7 @@ tasks.register<Copy>("copyGoogleServicesDev") {
 }
 
 tasks.register<Copy>("copyGoogleServicesProd") {
-    val src = file(prodGoogleServices)
+    val src = file(finalProdGoogleServices)
     if (src.exists()) {
         from(src)
         into("src/production")
@@ -63,7 +70,7 @@ android {
     defaultConfig {
         applicationId = "com.bishal.altered"
         minSdk = flutter.minSdkVersion
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 34 // Force targetSdk to 34 for emulator stability
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
@@ -98,4 +105,14 @@ flutter {
 tasks.named("preBuild").configure {
     dependsOn("copyGoogleServicesDev")
     dependsOn("copyGoogleServicesProd")
+}
+
+tasks.configureEach {
+    if (name.startsWith("process") && name.endsWith("GoogleServices")) {
+        if (name.contains("Development")) {
+            dependsOn("copyGoogleServicesDev")
+        } else if (name.contains("Production")) {
+            dependsOn("copyGoogleServicesProd")
+        }
+    }
 }

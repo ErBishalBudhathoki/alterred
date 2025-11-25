@@ -121,11 +121,11 @@ class _MobileSpeech implements SpeechService {
           // accumulate average level for diagnostics
           _avgLevel = ((_avgLevel * _levelSamples) + level) / (++_levelSamples);
           // noise gate threshold; avoid premature termination until we have at least one partial
-          if (level > 40) {
+          if (level > 2) {
             _silenceTimer?.cancel();
           } else {
             _silenceTimer?.cancel();
-            _silenceTimer = Timer(const Duration(milliseconds: 2500), () async {
+            _silenceTimer = Timer(const Duration(milliseconds: 10000), () async {
               if (_listening) {
                 try {
                   await _speech.stop();
@@ -155,8 +155,8 @@ class _MobileSpeech implements SpeechService {
         ),
       );
       _readyProbe?.cancel();
-      _readyProbe = Timer(const Duration(milliseconds: 1200), () async {
-        if (_listening && _partials == 0 && _levelSamples < 6) {
+      _readyProbe = Timer(const Duration(milliseconds: 5000), () async {
+        if (_listening && _partials == 0 && _levelSamples < 1) {
           try {
             await _speech.cancel();
           } catch (_) {}

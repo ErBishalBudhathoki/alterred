@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_neuropilot/l10n/app_localizations.dart';
-import 'package:flutter_neuropilot/screens/settings_screen.dart';
-import 'package:flutter_neuropilot/state/auth_state.dart';
+import 'package:altered/l10n/app_localizations.dart';
+import 'package:altered/screens/settings_screen.dart';
+import 'package:altered/state/auth_state.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 // Flutter test binding imported via flutter_test
 

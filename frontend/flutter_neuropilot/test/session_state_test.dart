@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_neuropilot/state/session_state.dart';
+import 'package:altered/state/session_state.dart';
 
 void main() {
   test('savedLocaleProvider loads locale from SharedPreferences', () async {

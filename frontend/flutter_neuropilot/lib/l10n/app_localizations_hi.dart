@@ -9,7 +9,7 @@ class AppLocalizationsHi extends AppLocalizations {
   AppLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
-  String get appTitle => 'न्यूरोपायलट';
+  String get appTitle => 'अल्टर्ड';
 
   @override
   String get homeTaskFlow => 'टास्कफ़्लो';
@@ -191,4 +191,22 @@ class AppLocalizationsHi extends AppLocalizations {
 
   @override
   String get minimalModeLabel => 'मिनिमल मोड';
+
+  @override
+  String get chatHistoryTitle => 'चैट्स';
+
+  @override
+  String get newChatLabel => 'नई चैट';
+
+  @override
+  String get noChatsLabel => 'अभी कोई चैट नहीं';
+
+  @override
+  String get editChatTitleLabel => 'चैट शीर्षक संपादित करें';
+
+  @override
+  String get cancelLabel => 'रद्द करें';
+
+  @override
+  String get saveLabel => 'सेव करें';
 }

@@ -5,7 +5,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_neuropilot/l10n/app_localizations.dart';
+import 'package:altered/l10n/app_localizations.dart';
 import '../core/design_tokens.dart';
 import '../core/chat_message.dart';
 import '../core/components/np_app_bar.dart';
@@ -19,6 +19,7 @@ import '../core/components/np_badge.dart';
 import '../core/components/np_liquid_ball.dart';
 import '../services/api_client.dart';
 import '../state/session_state.dart';
+import '../state/chat_store.dart';
 import '../core/speech_service.dart';
 import '../core/tts_service.dart';
 import '../core/routes.dart';
@@ -116,6 +117,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   final int _checkInIntervalSeconds = 120; // 2 minutes
   Timer? _inactivityTimer;
   DateTime? _lastActivityTime;
+  bool _proactiveStarted = false;
 
   // Just-in-Time Prompts State (mobile lifecycle)
   DateTime? _appPausedTime;
@@ -140,56 +142,84 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final hp = isWide ? DesignTokens.spacingXl : DesignTokens.spacingLg;
     return Scaffold(
       appBar: NpAppBar(
-        title: l.chatTitle,
+        title: 'Altered',
         showBack: false,
         actions: [
-          // Body Double Toggle
-          Row(
-            children: [
-              Text(
-                'Body Double',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurface,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              Switch(
-                value: _bodyDoubleActive,
-                onChanged: (val) {
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.of(context).pushNamed(Routes.settings),
+          ),
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            tooltip: 'More Options',
+            onSelected: (value) async {
+              switch (value) {
+                case 'new_chat':
+                  final store = ref.read(chatStoreProvider);
+                  final s = await store.createSession();
+                  ref.read(chatSessionIdProvider.notifier).state = s.id;
+                  await store.attachMessagesListener(s.id);
+                  await store.markRead(s.id);
+                  ref.invalidate(chatSessionsProvider);
                   setState(() {
-                    _bodyDoubleActive = val;
-                    if (val) {
+                    _messages.clear();
+                  });
+                  break;
+                case 'chats':
+                  Navigator.of(context).pushNamed(Routes.chats);
+                  break;
+                case 'focus_mode':
+                  setState(() => _focusMode = !_focusMode);
+                  _showModeBannerNow(l.focusModeLabel);
+                  break;
+                case 'body_double':
+                  setState(() {
+                    _bodyDoubleActive = !_bodyDoubleActive;
+                    if (_bodyDoubleActive) {
                       _startProactiveCheckins();
                       NpSnackbar.show(context, 'Body Double Active',
                           type: NpSnackType.success);
                     } else {
                       _inactivityTimer?.cancel();
                       _sessionTimer?.cancel();
+                      _proactiveStarted = false;
                       NpSnackbar.show(context, 'Body Double Paused',
                           type: NpSnackType.info);
                     }
                   });
-                },
-                activeTrackColor: DesignTokens.primary,
-                inactiveThumbColor: DesignTokens.secondary,
+                  break;
+              }
+            },
+            itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+              const PopupMenuItem<String>(
+                value: 'new_chat',
+                child: ListTile(
+                  leading: Icon(Icons.add),
+                  title: Text('New Chat'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'chats',
+                child: ListTile(
+                  leading: Icon(Icons.chat),
+                  title: Text('Chats'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuDivider(),
+              CheckedPopupMenuItem<String>(
+                value: 'focus_mode',
+                checked: _focusMode,
+                child: const Text('Focus Mode'),
+              ),
+              CheckedPopupMenuItem<String>(
+                value: 'body_double',
+                checked: _bodyDoubleActive,
+                child: const Text('Body Double'),
               ),
             ],
-          ),
-          const SizedBox(width: DesignTokens.spacingSm),
-          IconButton(
-            icon: Icon(
-                _focusMode ? Icons.visibility_off : Icons.center_focus_strong),
-            tooltip: l.focusModeLabel,
-            onPressed: () {
-              setState(() => _focusMode = !_focusMode);
-              _showModeBannerNow(l.focusModeLabel);
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: 'Settings',
-            onPressed: () => Navigator.of(context).pushNamed(Routes.settings),
           ),
         ],
       ),
@@ -558,22 +588,25 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   ),
                   child: Row(
                     children: [
-                      SizedBox(
-                        width: 56,
-                        height: 56,
-                        child: NpLiquidBall(
-                          mode: _listening
-                              ? NpLiquidMode.listening
-                              : (_speaking
-                                  ? NpLiquidMode.speaking
-                                  : (_loading || _engaged.isNotEmpty
-                                      ? NpLiquidMode.processing
-                                      : NpLiquidMode.idle)),
-                          amplitude: _listening
-                              ? _soundLevel
-                              : (_speaking ? 0.4 : 0.1),
-                          frequency: _listening ? 3.0 : 2.0,
-                          size: 40,
+                      GestureDetector(
+                        onTap: () => _showVoiceControls(context),
+                        child: SizedBox(
+                          width: 56,
+                          height: 56,
+                          child: NpLiquidBall(
+                            mode: _listening
+                                ? NpLiquidMode.listening
+                                : (_speaking
+                                    ? NpLiquidMode.speaking
+                                    : (_loading || _engaged.isNotEmpty
+                                        ? NpLiquidMode.processing
+                                        : NpLiquidMode.idle)),
+                            amplitude: _listening
+                                ? _soundLevel
+                                : (_speaking ? 0.4 : 0.1),
+                            frequency: _listening ? 3.0 : 2.0,
+                            size: 40,
+                          ),
                         ),
                       ),
                       const SizedBox(width: DesignTokens.spacingSm),
@@ -681,35 +714,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                           onPressed: () =>
                               setState(() => _voiceMode = !_voiceMode),
                         ),
-                      const SizedBox(width: DesignTokens.spacingXs),
-                      if (!_listening)
-                        IconButton(
-                          icon: Icon(
-                              _voiceOutput ? Icons.volume_up : Icons.volume_off,
-                              color: Theme.of(context).colorScheme.secondary),
-                          tooltip: 'Voice Output',
-                          onPressed: () {
-                            setState(() => _voiceOutput = !_voiceOutput);
-                          },
-                        ),
-                      const SizedBox(width: DesignTokens.spacingXs),
-                      if (!_listening)
-                        IconButton(
-                          icon: Icon(Icons.settings_voice,
-                              color: Theme.of(context).colorScheme.secondary),
-                          tooltip: 'Voice Settings',
-                          onPressed: () => _showVoiceControls(context),
-                        ),
-                      const SizedBox(width: DesignTokens.spacingXs),
-                      IconButton(
-                        icon: Icon(
-                            _voiceSession
-                                ? Icons.headset_off
-                                : Icons.headset_mic,
-                            color: Theme.of(context).colorScheme.secondary),
-                        tooltip: 'Voice Conversation',
-                        onPressed: _toggleVoiceSession,
-                      ),
                     ],
                   ),
                 ),
@@ -862,13 +866,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   void _startProactiveCheckins() {
-    if (_inactivityTimer != null || _sessionTimer != null) {
+    if (_proactiveStarted) {
       return;
     }
     setState(() {
       _sessionDurationMinutes = 0;
       _lastActivityTime = DateTime.now();
     });
+    _proactiveStarted = true;
     debugPrint(
         "Proactive check-ins started. Interval: $_checkInIntervalSeconds seconds");
 
@@ -1045,8 +1050,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _loading = true;
     });
     try {
-      final mem = ref.read(contextMemoryProvider);
-      await mem.add(ChatMessage(role: 'user', content: text));
+      final store = ref.read(chatStoreProvider);
+      final currentId = ref.read(chatSessionIdProvider);
+      final ensured = await ref.read(ensureChatSessionIdProvider.future);
+      final sid = currentId ?? ensured;
+      await store.addMessage(sid, ChatMessage(role: 'user', content: text));
     } catch (_) {}
     try {
       final tc = _parseTimerCommand(text);
@@ -1306,8 +1314,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _messages.add(ChatMessage(role: 'assistant', content: content));
     });
     try {
-      final mem = ref.read(contextMemoryProvider);
-      await mem.add(ChatMessage(role: 'assistant', content: content));
+      final store = ref.read(chatStoreProvider);
+      final currentId = ref.read(chatSessionIdProvider);
+      final ensured = await ref.read(ensureChatSessionIdProvider.future);
+      final sid = currentId ?? ensured;
+      await store.addMessage(
+          sid, ChatMessage(role: 'assistant', content: content));
+      await store.markRead(sid);
     } catch (_) {}
 
     // Speak the response if voice output is enabled
@@ -1324,56 +1337,81 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   Future<void> _showVoiceControls(BuildContext context) async {
     await NpBottomSheet.show(
       context: context,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
+      child: StatefulBuilder(
+        builder: (BuildContext context, StateSetter setSheetState) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(
-                  child: Text('Voice Output',
-                      style: Theme.of(context).textTheme.titleMedium)),
-              Switch(
-                  value: _voiceOutput,
-                  onChanged: (v) => setState(() => _voiceOutput = v)),
-            ],
-          ),
-          const SizedBox(height: DesignTokens.spacingSm),
-          Row(children: [
-            const Icon(Icons.volume_down),
-            Expanded(
-              child: Slider(
-                value: _volume,
-                min: 0.0,
-                max: 1.0,
-                onChanged: (v) => setState(() {
-                  _volume = v;
-                  _tts.volume = v;
-                }),
+              Row(
+                children: [
+                  Expanded(
+                      child: Text('Conversation Mode',
+                          style: Theme.of(context).textTheme.titleMedium)),
+                  Switch(
+                      value: _voiceSession,
+                      onChanged: (v) {
+                        Navigator.pop(context);
+                        _toggleVoiceSession();
+                      }),
+                ],
               ),
-            ),
-            const Icon(Icons.volume_up),
-          ]),
-          const SizedBox(height: DesignTokens.spacingSm),
-          Row(children: [
-            Expanded(
-                child: Text('Microphone',
-                    style: Theme.of(context).textTheme.titleMedium)),
-            NpBadge(
-                text: _speech.supported ? 'Present' : 'Absent',
-                type: _speech.supported
-                    ? NpBadgeType.success
-                    : NpBadgeType.warning),
-          ]),
-          const SizedBox(height: DesignTokens.spacingSm),
-          Row(children: [
-            Expanded(
-                child: Text('Speaking',
-                    style: Theme.of(context).textTheme.titleMedium)),
-            NpBadge(
-                text: _speaking ? 'On' : 'Off',
-                type: _speaking ? NpBadgeType.success : NpBadgeType.neutral),
-          ]),
-        ],
+              const SizedBox(height: DesignTokens.spacingSm),
+              Row(
+                children: [
+                  Expanded(
+                      child: Text('Voice Output',
+                          style: Theme.of(context).textTheme.titleMedium)),
+                  Switch(
+                      value: _voiceOutput,
+                      onChanged: (v) {
+                        setSheetState(() => _voiceOutput = v);
+                        setState(() => _voiceOutput = v);
+                      }),
+                ],
+              ),
+              const SizedBox(height: DesignTokens.spacingSm),
+              Row(children: [
+                const Icon(Icons.volume_down),
+                Expanded(
+                  child: Slider(
+                    value: _volume,
+                    min: 0.0,
+                    max: 1.0,
+                    onChanged: (v) {
+                      setSheetState(() => _volume = v);
+                      setState(() {
+                        _volume = v;
+                        _tts.volume = v;
+                      });
+                    },
+                  ),
+                ),
+                const Icon(Icons.volume_up),
+              ]),
+              const SizedBox(height: DesignTokens.spacingSm),
+              Row(children: [
+                Expanded(
+                    child: Text('Microphone',
+                        style: Theme.of(context).textTheme.titleMedium)),
+                NpBadge(
+                    text: _speech.supported ? 'Present' : 'Absent',
+                    type: _speech.supported
+                        ? NpBadgeType.success
+                        : NpBadgeType.warning),
+              ]),
+              const SizedBox(height: DesignTokens.spacingSm),
+              Row(children: [
+                Expanded(
+                    child: Text('Speaking',
+                        style: Theme.of(context).textTheme.titleMedium)),
+                NpBadge(
+                    text: _speaking ? 'On' : 'Off',
+                    type:
+                        _speaking ? NpBadgeType.success : NpBadgeType.neutral),
+              ]),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1756,32 +1794,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _startProactiveCheckins();
     }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final tsMs =
-          SchedulerBinding.instance.currentFrameTimeStamp.inMilliseconds;
-      _epochBaseMs = DateTime.now().millisecondsSinceEpoch - tsMs;
-      await _loadPulsePrefs();
-      await _pingBackend();
-      try {
-        await ref.read(loadGoogleSearchEnabledProvider.future);
-      } catch (_) {}
-      try {
-        await ref.read(ensureChatSessionIdProvider.future);
-        final mem = ref.read(contextMemoryProvider);
-        final hist = await mem.loadAll();
-        if (mounted && hist.isNotEmpty) {
-          setState(() {
-            _messages.addAll(hist);
-          });
-        }
-      } catch (_) {}
-      if (!_isTestEnv) {
-        _heartbeat?.cancel();
-        _heartbeat = Timer.periodic(const Duration(seconds: 10), (_) async {
-          await _pingBackend();
-        });
-      }
-    });
     _pulseCtl = AnimationController(
         vsync: this, duration: Duration(milliseconds: _pulseSpeedMs));
     _pulseCtl.addListener(() {
@@ -1807,6 +1819,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       if (!s && !_listening && !_loading && (_voiceSession || _voiceOutput)) {
         Future.delayed(
             const Duration(milliseconds: 1200), _startListeningForSession);
+      }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final tsMs =
+          SchedulerBinding.instance.currentFrameTimeStamp.inMilliseconds;
+      _epochBaseMs = DateTime.now().millisecondsSinceEpoch - tsMs;
+      await _loadPulsePrefs();
+      await _pingBackend();
+      try {
+        await ref.read(loadGoogleSearchEnabledProvider.future);
+        await ref.read(loadFirestoreSyncEnabledProvider.future);
+      } catch (_) {}
+      try {
+        final currentId = ref.read(chatSessionIdProvider);
+        final ensured = await ref.read(ensureChatSessionIdProvider.future);
+        final sid = currentId ?? ensured;
+        ref.read(chatSessionIdProvider.notifier).state = sid;
+        final store = ref.read(chatStoreProvider);
+        await store.attachSessionsListener();
+        await store.attachMessagesListener(sid);
+        final pageMsgs = await store.getMessages(sid, page: 0, pageSize: 50);
+        if (mounted && pageMsgs.isNotEmpty) {
+          setState(() {
+            _messages.addAll(pageMsgs);
+          });
+        }
+        await store.markRead(sid);
+      } catch (_) {}
+      if (!_isTestEnv) {
+        _heartbeat?.cancel();
+        _heartbeat = Timer.periodic(const Duration(seconds: 10), (_) async {
+          await _pingBackend();
+        });
       }
     });
   }

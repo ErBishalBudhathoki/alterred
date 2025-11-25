@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:flutter_neuropilot/l10n/app_localizations.dart';
+import 'package:altered/l10n/app_localizations.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_neuropilot/screens/chat_screen.dart' as chat;
-import 'package:flutter_neuropilot/state/session_state.dart';
-import 'package:flutter_neuropilot/services/api_client.dart';
+import 'package:altered/screens/chat_screen.dart' as chat;
+import 'package:altered/state/session_state.dart';
+import 'package:altered/services/api_client.dart';
 
 class FakeApiClient extends ApiClient {
   FakeApiClient() : super(baseUrl: 'http://example.com');

@@ -1,9 +1,9 @@
 {
-  "name": "NeuroPilot",
-  "short_name": "NeuroPilot",
+  "name": "Altered",
+  "short_name": "Altered",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#3B82F6",
-  "description": "NeuroPilot Flutter web app"
+  "description": "Altered"
 }
