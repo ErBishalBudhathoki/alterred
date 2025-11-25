@@ -13,6 +13,7 @@ import 'screens/chat_screen.dart';
 import 'screens/login_screen.dart';
 
 void main() async {
+  // Force rebuild: v1.1
   WidgetsFlutterBinding.ensureInitialized();
   await initFirebase();
   runApp(const ProviderScope(child: NeuroPilotApp()));
