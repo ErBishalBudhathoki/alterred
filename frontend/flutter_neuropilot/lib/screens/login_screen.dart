@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/components/np_app_bar.dart';
@@ -10,6 +11,21 @@ import '../core/design_tokens.dart';
 import '../core/routes.dart';
 import '../state/auth_state.dart';
 
+/// Screen for user authentication via email/password or Google Sign-In.
+///
+/// Implementation Details:
+/// - Uses [AuthController] for authentication logic.
+/// - Validates email and password inputs before submission.
+/// - Supports "Remember Me" functionality (UI only, logic handled by [AuthController]).
+///
+/// Design Decisions:
+/// - Clean, centralized form with clear feedback via [NpSnackbar].
+/// - Separated "Forgot Password" flow for better UX.
+///
+/// Behavioral Specifications:
+/// - Validates inputs on submit.
+/// - Redirects to [ChatScreen] on success.
+/// - Shows error snackbar on failure.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
   @override
@@ -38,15 +54,41 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
     setState(() => _loading = true);
     final ctl = ref.read(authControllerProvider);
-    final ok = await ctl.signInEmail(_email.text.trim(), _password.text.trim());
-    if (!mounted) return;
-    setState(() => _loading = false);
-    if (!ok) {
-      NpSnackbar.show(context, 'Invalid email or password',
+    try {
+      await ctl.signInEmail(_email.text.trim(), _password.text.trim());
+      if (!mounted) return;
+      setState(() => _loading = false);
+      Navigator.of(context).pushNamedAndRemoveUntil(Routes.chat, (r) => false);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      String msg;
+      switch (e.code) {
+        case 'user-not-found':
+          msg = 'No user found for that email.';
+          break;
+        case 'wrong-password':
+          msg = 'Wrong password provided.';
+          break;
+        case 'invalid-email':
+          msg = 'The email address is badly formatted.';
+          break;
+        case 'user-disabled':
+          msg = 'This user account has been disabled.';
+          break;
+        case 'invalid-credential':
+          msg = 'Invalid credentials. If you signed up with Google, please use that button.';
+          break;
+        default:
+          msg = 'Login failed: ${e.message}';
+      }
+      NpSnackbar.show(context, msg, type: NpSnackType.destructive);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      NpSnackbar.show(context, 'An unexpected error occurred: $e',
           type: NpSnackType.destructive);
-      return;
     }
-    Navigator.of(context).pushNamedAndRemoveUntil(Routes.chat, (r) => false);
   }
 
   Future<void> _google() async {
@@ -70,10 +112,30 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       return;
     }
     final ctl = ref.read(authControllerProvider);
-    await ctl.sendPasswordReset(_email.text.trim());
-    if (!mounted) return;
-    NpSnackbar.show(context, 'Check your inbox for reset link',
-        type: NpSnackType.info);
+    try {
+      await ctl.sendPasswordReset(_email.text.trim());
+      if (!mounted) return;
+      NpSnackbar.show(context, 'Check your inbox for reset link',
+          type: NpSnackType.info);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      String msg;
+      switch (e.code) {
+        case 'user-not-found':
+          msg = 'No user found for that email.';
+          break;
+        case 'invalid-email':
+          msg = 'The email address is badly formatted.';
+          break;
+        default:
+          msg = 'Password reset failed: ${e.message}';
+      }
+      NpSnackbar.show(context, msg, type: NpSnackType.destructive);
+    } catch (e) {
+      if (!mounted) return;
+      NpSnackbar.show(context, 'An unexpected error occurred: $e',
+          type: NpSnackType.destructive);
+    }
   }
 
   @override

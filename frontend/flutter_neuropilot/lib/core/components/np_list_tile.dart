@@ -1,6 +1,19 @@
 import 'package:flutter/material.dart';
 import '../design_tokens.dart';
 
+/// A single fixed-height row that typically contains some text as well as a leading or trailing icon.
+///
+/// Implementation Details:
+/// - Wraps the standard [ListTile] widget.
+/// - Adds custom padding and border radius.
+///
+/// Design Decisions:
+/// - Consistent typography scaling via [Theme.textTheme].
+/// - Enforces spacing guidelines from [DesignTokens].
+///
+/// Behavioral Specifications:
+/// - Supports tap interaction via [onTap].
+/// - Handles optional leading/trailing widgets.
 class NpListTile extends StatelessWidget {
   final Widget? leading;
   final String title;

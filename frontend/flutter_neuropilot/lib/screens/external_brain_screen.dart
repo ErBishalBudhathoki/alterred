@@ -8,6 +8,24 @@ import '../core/components/np_button.dart';
 import '../core/components/np_app_bar.dart';
 import '../core/components/np_snackbar.dart';
 
+/// Screen for capturing and viewing "External Brain" notes.
+///
+/// Allows users to quickly jot down thoughts or tasks, which are then processed by the backend.
+///
+/// Implementation Details:
+/// - Uses [NpTextField] for input and [NpButton] for actions.
+/// - Fetches existing notes on load via [ApiClient].
+/// - Displays captured task ID and updated notes list upon successful submission.
+///
+/// Design Decisions:
+/// - Simple list layout prioritizes quick capture and review.
+/// - Uses [NpSnackbar] for feedback to avoid blocking the UI with dialogs.
+///
+/// Behavioral Specifications:
+/// - [initState]: Fetches initial list of external notes.
+/// - [Capture]: Sends transcript to backend, updates UI with result.
+/// - [Refresh]: Manually reloads the notes list.
+/// - [Clear]: Resets the input field and task ID display.
 class ExternalBrainScreen extends ConsumerStatefulWidget {
   const ExternalBrainScreen({super.key});
   @override

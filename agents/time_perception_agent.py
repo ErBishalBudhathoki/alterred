@@ -1,3 +1,20 @@
+"""
+Time Perception Agent
+=====================
+Assists users with time management, estimation, and transitions.
+
+Implementation Details:
+- Uses `create_countdown` to interpret natural language time requests.
+- Provides `transition_helper` to guide users through task switching.
+
+Design Decisions:
+- 'create_countdown' handles various time formats (seconds, minutes, hours) and absolute ISO times.
+- Warnings are pre-calculated to provide multiple reminders as the deadline approaches.
+
+Behavioral Specifications:
+- Accurately parses time duration from user input.
+- Suggests transition strategies to reduce friction when changing tasks.
+"""
 import os
 import datetime
 from google.adk.agents import LlmAgent
@@ -6,6 +23,19 @@ from neuropilot_starter_code import estimate_real_time, detect_hyperfocus
 
 
 def create_countdown(natural_language_query: str) -> dict:
+    """
+    Parses a natural language query to create a countdown timer.
+
+    Implementation Details:
+    - Supports ISO format and regex-based duration parsing (seconds, minutes, hours).
+    - Sets warning intervals at 15, 10, 5, and 2 minutes/seconds depending on context.
+
+    Args:
+        natural_language_query (str): The user's request for a timer (e.g., "10 minutes").
+
+    Returns:
+        dict: A dictionary containing success status, target time, and warning intervals, or an error.
+    """
     q = (natural_language_query or "").strip()
     try:
         target_time = datetime.datetime.fromisoformat(q)
@@ -32,6 +62,19 @@ def create_countdown(natural_language_query: str) -> dict:
 
 
 def transition_helper(next_event: str) -> dict:
+    """
+    Provides strategies to help users transition to the next event.
+
+    Implementation Details:
+    - Suggests a wrap-up buffer time (15 minutes).
+    - Can be enhanced with more specific strategies based on the event type.
+
+    Args:
+        next_event (str): The name or description of the next event.
+
+    Returns:
+        dict: A dictionary containing the next event and a recommended action.
+    """
     return {"next": next_event, "action": "Start wrapping up 15 minutes before."}
 
 

@@ -3,6 +3,17 @@ import '../design_tokens.dart';
 
 enum NpProgressType { primary, success, warning, destructive }
 
+/// A linear progress indicator with semantic coloring.
+///
+/// Implementation Details:
+/// - Wraps [LinearProgressIndicator].
+/// - Maps [NpProgressType] to theme colors.
+///
+/// Design Decisions:
+/// - Semantic colors allow indicating status (e.g., error vs loading) implicitly.
+///
+/// Behavioral Specifications:
+/// - Indeterminate animation if [value] is null.
 class NpLinearProgress extends StatelessWidget {
   final double? value;
   final NpProgressType type;
@@ -26,6 +37,17 @@ class NpLinearProgress extends StatelessWidget {
   }
 }
 
+/// A circular progress indicator with semantic coloring.
+///
+/// Implementation Details:
+/// - Wraps [CircularProgressIndicator].
+/// - Maps [NpProgressType] to theme colors.
+///
+/// Design Decisions:
+/// - Consistent stroke width and coloring with linear variant.
+///
+/// Behavioral Specifications:
+/// - Indeterminate animation if [value] is null.
 class NpCircularProgress extends StatelessWidget {
   final double? value;
   final NpProgressType type;

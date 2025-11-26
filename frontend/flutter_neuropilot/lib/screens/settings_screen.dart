@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:altered/l10n/app_localizations.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../core/components/np_app_bar.dart';
+import '../core/components/np_avatar.dart';
 import '../core/components/np_button.dart';
 import '../core/design_tokens.dart';
 import '../state/session_state.dart';
@@ -13,6 +14,22 @@ import '../state/chat_store.dart';
 import 'package:firebase_core/firebase_core.dart';
 import '../core/oauth_service.dart';
 
+/// Screen for application settings and configuration.
+///
+/// Implementation Details:
+/// - Manages user preferences using [SharedPreferences].
+/// - Handles Google Calendar integration via OAuth flow.
+/// - Allows configuration of API keys and UI preferences (e.g., pulse animation).
+///
+/// Design Decisions:
+/// - Uses [ConsumerStatefulWidget] to reactively update UI based on provider state.
+/// - Separates sections (Profile, Calendar, API) for clarity.
+/// - OAuth flow handles both web (redirect) and mobile (deep link) scenarios.
+///
+/// Behavioral Specifications:
+/// - Loads preferences on init.
+/// - Saves preferences immediately on change or explicit save action.
+/// - Manages OAuth callback handling for calendar connection.
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -359,18 +376,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     children: [
                       Row(
                         children: [
-                          CircleAvatar(
-                            radius: 30,
-                            backgroundImage: user.photoURL != null
-                                ? NetworkImage(user.photoURL!)
-                                : null,
-                            child: user.photoURL == null
-                                ? Text(
-                                    user.displayName?.isNotEmpty == true
-                                        ? user.displayName![0].toUpperCase()
-                                        : user.email![0].toUpperCase(),
-                                    style: const TextStyle(fontSize: 24))
-                                : null,
+                          NpAvatar(
+                            name: user.displayName ?? user.email,
+                            imageUrl: user.photoURL,
+                            size: 60,
                           ),
                           const SizedBox(width: DesignTokens.spacingMd),
                           Expanded(

@@ -1,3 +1,21 @@
+"""
+Firestore-backed Session Storage
+================================
+Implements the `SessionStorage` interface using Google Cloud Firestore.
+
+Implementation Details:
+- Stores session metadata, state, and events in a hierarchical collection path:
+  `users/{user_id}/apps/{app_name}/sessions/{session_id}`.
+- Maintains `last_activity` and optional TTL-based expiry.
+
+Design Decisions:
+- Use collections for `events` and a single document for `state` to optimize reads/writes.
+- `delete_expired` removes entire session subtrees to minimize residual data.
+
+Behavioral Specifications:
+- `create_session` initializes metadata and an empty state document.
+- `append_event` updates `last_activity` with event timestamps.
+"""
 from typing import Any, Dict, List, Optional
 from datetime import datetime
 import os
@@ -7,14 +25,42 @@ from .session_storage import SessionStorage, SessionMeta, SessionEvent, serializ
 
 
 class FirestoreSessionStorage(SessionStorage):
+    """
+    Firestore implementation of session storage.
+
+    Methods provide creation, retrieval, updates, listing, expiry handling, and deletion.
+    """
     def __init__(self):
         self.db = get_client()
         self.ttl_days = int(os.getenv("MEMORY_RETENTION_DAYS", "30"))
 
     def _path(self, app_name: str, user_id: str, session_id: str):
+        """
+        Computes the Firestore document reference for a session.
+
+        Args:
+            app_name: Application namespace.
+            user_id: Owner of the session.
+            session_id: Unique session id.
+
+        Returns:
+            A Firestore document reference for the session root.
+        """
         return self.db.collection("users").document(user_id).collection("apps").document(app_name).collection("sessions").document(session_id)
 
     def create_session(self, app_name: str, user_id: str, session_id: str, ttl_days: Optional[int] = None) -> SessionMeta:
+        """
+        Creates a new session with metadata and empty state.
+
+        Args:
+            app_name: Application namespace.
+            user_id: Owner of the session.
+            session_id: Unique session id.
+            ttl_days: Optional TTL override in days.
+
+        Returns:
+            SessionMeta: The created session metadata object.
+        """
         now = datetime.utcnow().isoformat()
         expires = compute_expiry(datetime.utcnow(), ttl_days or self.ttl_days)
         meta = {
@@ -34,6 +80,17 @@ class FirestoreSessionStorage(SessionStorage):
         return SessionMeta(**meta)
 
     def get_session(self, app_name: str, user_id: str, session_id: str) -> Dict[str, Any]:
+        """
+        Retrieves session metadata, current state, and recent events.
+
+        Args:
+            app_name: Application namespace.
+            user_id: Owner of the session.
+            session_id: Unique session id.
+
+        Returns:
+            Dict[str, Any]: A dict with keys: meta, state, events.
+        """
         ref = self._path(app_name, user_id, session_id)
         doc = ref.get()
         meta = doc.to_dict().get("meta", {}) if doc.exists else {}
@@ -46,16 +103,25 @@ class FirestoreSessionStorage(SessionStorage):
         return {"meta": meta, "state": state, "events": events}
 
     def append_event(self, app_name: str, user_id: str, session_id: str, event: SessionEvent) -> None:
+        """
+        Appends an event to the session and updates `last_activity`.
+        """
         ref = self._path(app_name, user_id, session_id)
         ref.collection("events").add(serialize_event(event))
         ref.update({"meta.last_activity": event.created_at})
 
     def update_state(self, app_name: str, user_id: str, session_id: str, state: Dict[str, Any]) -> None:
+        """
+        Merges new state into the session state document and updates `last_activity`.
+        """
         ref = self._path(app_name, user_id, session_id)
         ref.collection("state").document("state").set({"data": state}, merge=True)
         ref.update({"meta.last_activity": datetime.utcnow().isoformat()})
 
     def list_sessions(self, user_id: str, app_name: str, limit: int = 20, order: str = "desc") -> List[SessionMeta]:
+        """
+        Lists sessions for a user/app ordered by recent activity.
+        """
         col = self.db.collection("users").document(user_id).collection("apps").document(app_name).collection("sessions")
         q = col.order_by("meta.last_activity", direction=("DESCENDING" if order == "desc" else "ASCENDING")).limit(limit)
         res = []
@@ -66,6 +132,10 @@ class FirestoreSessionStorage(SessionStorage):
         return res
 
     def expire_sessions(self, now: datetime) -> int:
+        """
+        Marks sessions as expired if their `expires_at` is earlier than `now`.
+        Returns the number of sessions marked expired.
+        """
         users = self.db.collection("users").stream()
         count = 0
         for u in users:
@@ -81,6 +151,9 @@ class FirestoreSessionStorage(SessionStorage):
         return count
 
     def delete_session(self, app_name: str, user_id: str, session_id: str) -> None:
+        """
+        Deletes a session and all child documents (events, state).
+        """
         ref = self._path(app_name, user_id, session_id)
         events = ref.collection("events").stream()
         for e in events:
@@ -89,6 +162,10 @@ class FirestoreSessionStorage(SessionStorage):
         ref.delete()
 
     def delete_expired(self) -> int:
+        """
+        Deletes all sessions previously marked as `expired`.
+        Returns the number of deleted sessions.
+        """
         users = self.db.collection("users").stream()
         count = 0
         for u in users:

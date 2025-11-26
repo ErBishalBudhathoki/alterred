@@ -12,6 +12,22 @@ import 'screens/splash_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/login_screen.dart';
 
+/// Entry point of the application.
+///
+/// Implementation Details:
+/// - Initializes Flutter binding and Firebase.
+/// - Wraps the app in a `ProviderScope` for Riverpod state management.
+/// - Sets up the material theme using `DesignTokens`.
+///
+/// Design Decisions:
+/// - Uses a consumer widget `_AuthGate` to handle initial routing based on auth state.
+/// - Applies a custom theme derived from a seed color for consistency.
+/// - Configures localization delegates for multi-language support.
+///
+/// Behavioral Specifications:
+/// - Shows `SplashScreen` while checking auth status.
+/// - Redirects to `LoginScreen` if unauthenticated.
+/// - Redirects to `ChatScreen` if authenticated.
 void main() async {
   // Force rebuild: v1.1
   WidgetsFlutterBinding.ensureInitialized();

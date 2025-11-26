@@ -9,6 +9,20 @@ import '../screens/splash_screen.dart';
 import '../screens/login_screen.dart';
 import '../screens/signup_screen.dart';
 
+/// Centralized route definitions and navigation map.
+///
+/// Defines the route strings and the builder map for `MaterialApp`.
+///
+/// Implementation Details:
+/// - Static constants for route names to prevent typos.
+/// - Static [map] getter returns the `WidgetBuilder` map.
+///
+/// Design Decisions:
+/// - Centralization makes it easy to see all available screens and manage navigation logic.
+/// - The home route `/` is typically handled by the `home` property of `MaterialApp` (or an `_AuthGate`), but is defined here for completeness.
+///
+/// Behavioral Specifications:
+/// - [map]: Returns a map associating route strings with their corresponding screen widgets.
 class Routes {
   static const home = '/';
   static const chat = '/chat';
@@ -21,6 +35,7 @@ class Routes {
   static const settings = '/settings';
   static const health = '/health';
 
+  /// Returns the route map for the application.
   static Map<String, WidgetBuilder> get map => {
         // Note: '/' is handled by MaterialApp's home parameter
         chat: (_) => const ChatScreen(),

@@ -69,3 +69,6 @@ firebase-service-account.json
 /docs/
 task.md
 issues.md
+neuropilot_quickstart.md
+neuropilot_tech_stack.md
+neuropilot_starter_code.py

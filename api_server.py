@@ -1,3 +1,41 @@
+"""
+Altered API Server
+==================
+
+This module serves as the main entry point for the Altered backend application.
+It uses FastAPI to expose a RESTful API that the Flutter frontend (and other clients)
+interact with.
+
+Architecture:
+-------------
+- **Framework:** FastAPI is used for high performance and automatic OpenAPI documentation.
+- **Middleware:** CORS middleware is configured to allow cross-origin requests, essential for
+  mobile and web clients. A custom middleware `_strip_api_prefix` is used to handle
+  different routing configurations (e.g., behind a proxy).
+- **Service Integration:** The server integrates various services and agents:
+    - History Service (retrieving past sessions)
+    - Auth Service (user identification)
+    - Memory Bank (pattern recognition)
+    - Agents (TaskFlow, TimePerception, EnergySensory, DecisionSupport)
+    - External Tools (Calendar, Metrics)
+
+Design Decisions:
+-----------------
+- **Statelessness:** The API is designed to be largely stateless, relying on the database
+  (Firestore/File) and the `session_id` or `user_id` passed in requests to maintain context.
+- **Modularity:** Endpoints delegate logic to specific service modules (`services/`) or
+  agent modules (`agents/`), keeping the route handlers thin.
+- **ADK Integration:** It conditionally imports Google's Agent Development Kit (ADK) components
+  to support advanced agentic workflows if available.
+
+Behavioral Specifications:
+--------------------------
+- **Input:** JSON payloads via HTTP POST/GET.
+- **Output:** JSON responses. Standard HTTP status codes are used.
+- **Error Handling:** FastAPI's default exception handling is leveraged, but specific
+  services may raise exceptions that should be handled (though currently mostly implicit).
+"""
+
 import os
 from uuid import uuid4
 from dotenv import load_dotenv
@@ -28,6 +66,7 @@ from services.calendar_mcp import list_events_today, check_mcp_ready
 from services.oauth_handlers import GoogleOAuthHandler
 from services.user_settings import UserSettings
 from adk_app import adk_respond
+
 try:
     from google.adk.tools.google_search_tool import GoogleSearchTool
     from google.adk.agents import LlmAgent
@@ -38,10 +77,14 @@ try:
     _SEARCH_TOOL = GoogleSearchTool(bypass_multi_tools_limit=True)
 except ImportError:
     _SEARCH_TOOL = None
+
 from services.chat_commands import parse as parse_chat_command, execute as execute_chat_command, help as chat_help
 
 
 app = FastAPI(title="Altered API")
+
+# Configure CORS to allow requests from any origin.
+# In production, this should be restricted to specific domains for security.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -53,6 +96,19 @@ app.add_middleware(
 
 @app.middleware("http")
 async def _strip_api_prefix(request: Request, call_next):
+    """
+    Middleware to strip the '/api' prefix from incoming requests.
+
+    This allows the API to be hosted under an '/api' path (e.g., via Nginx or a cloud load balancer)
+    while the internal routing logic remains at the root level.
+
+    Args:
+        request (Request): The incoming HTTP request.
+        call_next (Callable): The next middleware or route handler.
+
+    Returns:
+        Response: The HTTP response.
+    """
     p = request.scope.get("path", "")
     if p.startswith("/api/"):
         request.scope["path"] = p[4:]
@@ -62,16 +118,52 @@ async def _strip_api_prefix(request: Request, call_next):
 
 
 def _uid(user_id: str | None) -> str:
+    """
+    Helper to resolve the effective user ID.
+
+    Priority:
+    1. Explicitly provided `user_id`.
+    2. `USER` environment variable (for local dev/terminal).
+    3. Default to "terminal_user".
+
+    Args:
+        user_id (str | None): The user ID provided in the request query/body.
+
+    Returns:
+        str: The resolved user ID.
+    """
     return user_id or os.getenv("USER") or "terminal_user"
 
 
 @app.get("/health")
 def health():
+    """
+    Health check endpoint.
+
+    Used by monitoring systems (e.g., Kubernetes, load balancers) to verify
+    that the service is running and responsive.
+
+    Returns:
+        dict: A dictionary containing status "ok" and the current server time.
+    """
     return {"ok": True, "time": datetime.utcnow().isoformat()}
 
 
 @app.get("/sessions/yesterday")
 def sessions_yesterday(request: Request, user_id: str | None = None):
+    """
+    Retrieve session data from yesterday.
+
+    This is used for the "yesterday's recap" feature, helping users review
+    their previous day's activities.
+
+    Args:
+        request (Request): The HTTP request object (used to extract auth headers).
+        user_id (str | None): Optional user ID override.
+
+    Returns:
+        dict: A dictionary containing a list of sessions.
+    """
     start, end = yesterday_range()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     sessions = get_sessions_by_date(uid, "altered", start, end)
@@ -80,6 +172,17 @@ def sessions_yesterday(request: Request, user_id: str | None = None):
 
 @app.get("/sessions/{session_id}/events")
 def session_events(request: Request, session_id: str, user_id: str | None = None):
+    """
+    Retrieve specific events for a given session.
+
+    Args:
+        request (Request): The HTTP request object.
+        session_id (str): The ID of the session to retrieve events for.
+        user_id (str | None): Optional user ID override.
+
+    Returns:
+        dict: A dictionary containing a list of events.
+    """
     start, end = yesterday_range()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     events = get_events_for_session(uid, "altered", session_id, start, end)
@@ -88,20 +191,56 @@ def session_events(request: Request, session_id: str, user_id: str | None = None
 
 @app.post("/tasks/atomize")
 def api_atomize(payload: Dict[str, Any] = Body(...)):
+    """
+    Break down a high-level task into smaller, manageable sub-tasks (atomization).
+
+    This uses the `atomize_task` function (likely powered by an LLM) to help
+    users who are overwhelmed by large tasks.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing "description" of the task.
+
+    Returns:
+        dict: The atomized task structure.
+    """
     desc = payload.get("description", "")
     return atomize_task(desc)
 
 
 @app.post("/tasks/schedule")
 def api_schedule(payload: Dict[str, Any] = Body(...)):
+    """
+    Schedule a list of tasks based on energy levels and priorities.
+
+    Delegates to `agents.taskflow_agent.schedule_tasks`.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing:
+            - "items": List of task descriptions.
+            - "energy": User's current energy level (int).
+            - "weights": Optional weights for prioritization.
+
+    Returns:
+        dict: The scheduled task list.
+    """
     items = payload.get("items", [])
     energy = int(payload.get("energy", 5))
     weights = payload.get("weights", None)
     return schedule_tasks(items, energy, weights)
 
 
+
 @app.post("/time/countdown")
 def api_countdown(payload: Dict[str, Any] = Body(...)):
+    """
+    Create a countdown timer based on a natural language query.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing "query" (e.g., "10 minutes").
+
+    Returns:
+        dict: The timer configuration and ID.
+    """
     query = payload.get("query")
     conf = create_countdown(query)
     if conf.get("ok") is False:
@@ -113,12 +252,34 @@ def api_countdown(payload: Dict[str, Any] = Body(...)):
 
 @app.post("/energy/detect")
 def api_detect(payload: Dict[str, Any] = Body(...)):
+    """
+    Detect sensory overload from text input.
+
+    Delegates to `agents.energy_sensory_agent.detect_sensory_overload`.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing "text".
+
+    Returns:
+        dict: Assessment of sensory load.
+    """
     text = payload.get("text", "")
     return detect_sensory_overload(text)
 
 
 @app.post("/decision/reduce")
 def api_reduce(payload: Dict[str, Any] = Body(...)):
+    """
+    Reduce a list of options to a manageable subset to help with decision fatigue.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing:
+            - "options": List of option strings.
+            - "limit": Maximum number of options to return (default 3).
+
+    Returns:
+        dict: Reduced list of options.
+    """
     opts: List[str] = payload.get("options", [])
     limit = int(payload.get("limit", 3))
     return reduce_options(opts, max_options=limit)
@@ -126,12 +287,32 @@ def api_reduce(payload: Dict[str, Any] = Body(...)):
 
 @app.post("/decision/protocol")
 def api_protocol(payload: Dict[str, Any] = Body(...)):
+    """
+    Apply a specific protocol to overcome decision paralysis.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing "options".
+
+    Returns:
+        dict: The result of the paralysis protocol.
+    """
     opts: List[str] = payload.get("options", [])
     return paralysis_protocol(opts)
 
 
 @app.post("/energy/match")
 def api_energy_match(payload: Dict[str, Any] = Body(...)):
+    """
+    Match tasks to the user's current energy level.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing:
+            - "tasks": List of task descriptions.
+            - "energy": User's energy level (int).
+
+    Returns:
+        dict: Tasks that match the energy level.
+    """
     tasks = payload.get("tasks", [])
     energy = int(payload.get("energy", 5))
     return match_task_to_energy(tasks, energy)
@@ -139,12 +320,32 @@ def api_energy_match(payload: Dict[str, Any] = Body(...)):
 
 @app.post("/decision/commit")
 def api_decision_commit(payload: Dict[str, Any] = Body(...)):
+    """
+    Commit to a specific decision choice.
+
+    This is a placeholder for tracking user decisions.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing "choice".
+
+    Returns:
+        dict: Confirmation of the commitment.
+    """
     choice = payload.get("choice")
     return {"committed": True, "choice": choice}
 
 
 @app.post("/external/capture")
 def api_capture(payload: Dict[str, Any] = Body(...)):
+    """
+    Capture an external input (e.g., voice transcript) as a task or note.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing "transcript".
+
+    Returns:
+        dict: The created task ID and title.
+    """
     transcript = payload.get("transcript", "")
     title = transcript.split(".")[0]
     tid = store_voice_task(title, "captured", transcript)
@@ -153,12 +354,31 @@ def api_capture(payload: Dict[str, Any] = Body(...)):
 
 @app.get("/external/context/{task_id}")
 def api_context(task_id: str):
+    """
+    Retrieve context for a specific external task/note.
+
+    Args:
+        task_id (str): The ID of the task.
+
+    Returns:
+        dict: The context associated with the task.
+    """
     ctx = get_context(task_id)
     return {"context": ctx}
 
 
 @app.get("/external/notes")
 def api_external_notes(request: Request, user_id: str | None = None):
+    """
+    List all external notes/tasks for the user.
+
+    Args:
+        request (Request): HTTP request.
+        user_id (str | None): Optional user ID override.
+
+    Returns:
+        dict: List of notes.
+    """
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     notes = list_voice_tasks(uid)
     return {"notes": notes}
@@ -166,12 +386,30 @@ def api_external_notes(request: Request, user_id: str | None = None):
 
 @app.post("/a2a/connect")
 def api_a2a_connect(payload: Dict[str, Any] = Body(...)):
+    """
+    Connect to an Agent-to-Agent (A2A) partner.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing "partner_id".
+
+    Returns:
+        dict: Connection status.
+    """
     pid = payload.get("partner_id")
     return connect_partner(pid)
 
 
 @app.post("/a2a/update")
 def api_a2a_update(payload: Dict[str, Any] = Body(...)):
+    """
+    Post an update to an A2A partner.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing "partner_id" and "update" data.
+
+    Returns:
+        dict: Update status.
+    """
     pid = payload.get("partner_id")
     upd = payload.get("update", {})
     return post_update(pid, upd)
@@ -179,6 +417,16 @@ def api_a2a_update(payload: Dict[str, Any] = Body(...)):
 
 @app.get("/metrics/overview")
 def api_metrics_overview(request: Request, user_id: str | None = None):
+    """
+    Get a daily overview of metrics (productivity, energy, etc.).
+
+    Args:
+        request (Request): HTTP request.
+        user_id (str | None): Optional user ID override.
+
+    Returns:
+        dict: Daily overview metrics.
+    """
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     dk = datetime.utcnow().date().isoformat()
     return compute_daily_overview(uid, dk)
@@ -186,12 +434,34 @@ def api_metrics_overview(request: Request, user_id: str | None = None):
 
 @app.get("/memory/patterns")
 def api_memory_patterns(request: Request, user_id: str | None = None):
+    """
+    Retrieve recognized patterns from the user's memory bank.
+
+    Args:
+        request (Request): HTTP request.
+        user_id (str | None): Optional user ID override.
+
+    Returns:
+        dict: List of identified patterns.
+    """
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     return {"patterns": get_patterns(uid)}
 
 
 @app.post("/memory/compact")
 def api_memory_compact(request: Request, payload: Dict[str, Any] = Body(...)):
+    """
+    Trigger compaction of a session's memory.
+
+    This process summarizes the session events to save space and distill key information.
+
+    Args:
+        request (Request): HTTP request.
+        payload (Dict[str, Any]): JSON payload containing "session_id".
+
+    Returns:
+        dict: Result of the compaction process.
+    """
     uid = get_user_id_from_request(request) if request else _uid(None)
     session_id = payload.get("session_id")
     res = compact_session(uid, "altered", session_id)
@@ -201,12 +471,30 @@ def api_memory_compact(request: Request, payload: Dict[str, Any] = Body(...)):
 
 @app.get("/calendar/ready")
 def api_calendar_ready(request: Request):
+    """
+    Check if the Calendar MCP (Model Context Protocol) is ready.
+
+    Args:
+        request (Request): HTTP request.
+
+    Returns:
+        dict: Readiness status of the calendar service.
+    """
     uid = get_user_id_from_request(request) if request else _uid(None)
     return check_mcp_ready(user_id=uid)
 
 
 @app.get("/calendar/events/today")
 def api_calendar_events_today(request: Request):
+    """
+    List calendar events for today.
+
+    Args:
+        request (Request): HTTP request.
+
+    Returns:
+        dict: List of events for today.
+    """
     uid = get_user_id_from_request(request) if request else _uid(None)
     return list_events_today("primary", user_id=uid)
 
@@ -362,6 +650,22 @@ def api_delete_api_key(request: Request):
 
 @app.post("/chat/respond")
 def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
+    """
+    Main chat endpoint for generating agent responses.
+
+    This endpoint orchestrates the entire response generation process:
+    1. Receives user input.
+    2. Calls `adk_respond` (or fallback logic) to process the input.
+    3. Executes any necessary tools (e.g., calendar, search).
+    4. Returns the final text response and any tool outputs.
+
+    Args:
+        request (Request): HTTP request.
+        payload (Dict[str, Any]): JSON payload containing "text" and optional "session_id".
+
+    Returns:
+        dict: Response containing "text", "tools", and "session_id".
+    """
     uid = get_user_id_from_request(request) if request else _uid(None)
     text = payload.get("text", "")
     session_id = payload.get("session_id") or uuid4().hex
@@ -435,6 +739,16 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
 
 @app.post("/chat/command")
 def api_chat_command(request: Request, payload: Dict[str, Any] = Body(...)):
+    """
+    Execute a specific chat command (e.g., /clear, /help).
+
+    Args:
+        request (Request): HTTP request.
+        payload (Dict[str, Any]): JSON payload containing "text" (command) and "session_id".
+
+    Returns:
+        dict: Result of the command execution.
+    """
     uid = get_user_id_from_request(request) if request else _uid(None)
     text = payload.get("text", "")
     session_id = payload.get("session_id") or uuid4().hex
@@ -445,8 +759,18 @@ def api_chat_command(request: Request, payload: Dict[str, Any] = Body(...)):
 
 @app.get("/chat/help")
 def api_chat_help():
+    """
+    Get help text for available chat commands.
+
+    Returns:
+        str: Help text.
+    """
     return chat_help()
+
 def _nl_event_confirmation(title: str, start_iso: str, end_iso: str, location: Optional[str] = None, calendar_label: Optional[str] = None) -> str:
+    """
+    Helper to generate a natural language confirmation for a created event.
+    """
     try:
         s = datetime.fromisoformat(start_iso)
         e = datetime.fromisoformat(end_iso)

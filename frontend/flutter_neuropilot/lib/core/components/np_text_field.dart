@@ -1,13 +1,32 @@
 import 'package:flutter/material.dart';
 import '../design_tokens.dart';
 
+/// A standard single-line text input field.
+///
+/// Implementation Details:
+/// - Wraps the standard [TextField] widget.
+/// - Configurable for different input types (text, email, number).
+///
+/// Design Decisions:
+/// - Uniform border radius and padding via [DesignTokens].
+/// - Outline border style provides clear boundaries.
+///
+/// Behavioral Specifications:
+/// - Updates the [controller] text as user types.
+/// - Triggers [onSubmitted] when "Done" or "Enter" is pressed.
 class NpTextField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final TextInputType? keyboardType;
   final ValueChanged<String>? onSubmitted;
   final TextInputAction? textInputAction;
-  const NpTextField({super.key, required this.controller, required this.label, this.keyboardType, this.onSubmitted, this.textInputAction});
+  const NpTextField(
+      {super.key,
+      required this.controller,
+      required this.label,
+      this.keyboardType,
+      this.onSubmitted,
+      this.textInputAction});
 
   @override
   Widget build(BuildContext context) {

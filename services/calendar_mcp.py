@@ -1,3 +1,26 @@
+"""
+Calendar MCP Service
+====================
+Provides integration with Google Calendar using the Model Context Protocol (MCP).
+Handles OAuth credential management, event creation, listing, updating, and deletion.
+Also includes natural language processing for time and duration parsing.
+
+Implementation Details:
+- Uses `mcp` Python SDK to communicate with the `@cocal/google-calendar-mcp` server.
+- Manages OAuth tokens using `UserSettings` and `GoogleOAuthHandler`.
+- Implements a temporary credential file mechanism for the MCP server.
+- Provides async wrappers (`_create_event_async`, etc.) and synchronous entry points.
+
+Design Decisions:
+- Uses `tempfile` to securely pass credentials to the MCP server process.
+- Implements a "check and refresh" logic for OAuth tokens before every operation.
+- fallback to `GOOGLE_OAUTH_CREDENTIALS` env var for local dev/testing.
+
+Behavioral Specifications:
+- `create_calendar_event`: Parses natural language time/duration if needed, creates event.
+- `list_events_today`: Lists events for the current day.
+- `check_mcp_ready`: Verifies if the MCP server and credentials are ready.
+"""
 import os
 import asyncio
 import tempfile

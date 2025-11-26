@@ -25,6 +25,28 @@ import '../core/tts_service.dart';
 import '../core/routes.dart';
 // import '../core/link_opener.dart';
 
+/// The main chat interface for the application.
+///
+/// Implementation Details:
+/// - Uses [ConsumerStatefulWidget] to integrate with Riverpod providers.
+/// - Manages local state for chat messages, voice mode, timers, and proactive check-ins.
+/// - Integrates with [ApiClient] for backend communication.
+/// - Handles voice input/output using [SpeechService] and [TtsService].
+///
+/// Design Decisions:
+/// - Uses a polling mechanism for timers to ensure UI updates.
+/// - Implements a "Body Double" feature with proactive check-ins based on inactivity.
+/// - Supports both text and voice interaction modes.
+/// - Uses a "Focus Mode" to reduce distractions.
+///
+/// Behavioral Specifications:
+/// - Messages are persisted locally via [ChatStore] and synced to Firestore if enabled.
+/// - Timers are managed locally and can be created/queried via natural language.
+/// - The interface adapts to "Focus Mode" and "Minimal Mode" settings.
+
+/// Represents the intent of a user's message.
+///
+/// Used for fallback routing when the orchestrator is unavailable or for client-side logic.
 enum Intent {
   health,
   atomize,
@@ -40,6 +62,7 @@ enum Intent {
   unknown,
 }
 
+/// Represents a countdown timer item.
 class _TimerItem {
   _TimerItem({
     required this.id,
@@ -56,8 +79,10 @@ class _TimerItem {
   DateTime? completedAt;
 }
 
+/// Actions inferred from a timer command.
 enum _TimerAction { create, query, unknown }
 
+/// Result of parsing a timer command.
 class _TimerParseResult {
   _TimerParseResult(this.action, {this.seconds, this.additional = false});
   final _TimerAction action;
@@ -65,12 +90,21 @@ class _TimerParseResult {
   final bool additional;
 }
 
+/// The main chat screen widget.
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key});
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
+/// The state class for [ChatScreen].
+///
+/// Manages:
+/// - Chat message list and input controller.
+/// - Voice recognition and synthesis state.
+/// - Timer logic and UI updates.
+/// - Proactive check-in (Body Double) timers.
+/// - Connection status and error handling.
 class _ChatScreenState extends ConsumerState<ChatScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final List<ChatMessage> _messages = [];
@@ -731,6 +765,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     setState(() => _showInactivityPrompt = false);
   }
 
+  /// Formats the voice transcript with basic punctuation.
+  ///
+  /// Adds a question mark if the sentence starts with a question word.
   String _formatTranscript(String s) {
     final t = s.trim();
     if (t.isEmpty) return '';
@@ -769,6 +806,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     await _triggerJustInTimePrompt(0); // 0 seconds means manual trigger
   }
 
+  /// Triggers a "Just-in-Time" prompt to re-engage the user.
+  ///
+  /// Called when the app resumes from the background or upon manual trigger.
+  /// Uses the "TaskFlow Agent" to generate a context-aware prompt.
   Future<void> _triggerJustInTimePrompt(int durationSeconds) async {
     final api = ref.read(apiClientProvider);
     try {
@@ -822,6 +863,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
+  /// Infers the user's intent from the message content.
+  ///
+  /// Used as a fallback when the orchestrator is unavailable or for simple local commands.
   Intent _inferIntent(String q) {
     final s = q.toLowerCase();
     if (s.contains('health') || s.contains('status')) {
@@ -865,6 +909,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return Intent.unknown;
   }
 
+  /// Activates the "Body Double" mode.
+  ///
+  /// Starts a periodic timer to track session duration and monitors user inactivity.
   void _startProactiveCheckins() {
     if (_proactiveStarted) {
       return;
@@ -889,6 +936,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     _resetInactivityTimer();
   }
 
+  /// Resets the inactivity timer.
+  ///
+  /// Called whenever the user interacts with the app.
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
     _lastActivityTime = DateTime.now();
@@ -900,6 +950,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
   }
 
+  /// Performs a proactive check-in if the user has been inactive.
+  ///
+  /// Sends a prompt to the backend to generate a check-in message using the "body_double_checkin" tool.
   Future<void> _checkInProactive() async {
     // Verify user has been inactive
     final secondsSince =
@@ -953,6 +1006,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
+  /// Starts a countdown timer.
+  ///
+  /// Creates a [_TimerItem] and updates the UI periodically.
   void _startCountdown(String timerId, String targetIso) {
     final target = DateTime.parse(targetIso);
     final now = DateTime.now();
@@ -1036,6 +1092,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
   }
 
+  /// Handles message submission.
+  ///
+  /// Processes the input text, sends it to the backend (or orchestrator), and handles the response.
+  /// Supports both text and voice input.
   Future<void> _handleSubmit(ApiClient api,
       {bool isVoice = false, String? textOverride}) async {
     final text = textOverride ?? _input.text.trim();
@@ -1309,6 +1369,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
+  /// Appends an assistant message to the chat and optionally speaks it.
+  ///
+  /// Adds the message to the local list, persists it to the [ChatStore],
+  /// and triggers TTS if voice output is enabled.
   void _appendAssistant(String content) async {
     setState(() {
       _messages.add(ChatMessage(role: 'assistant', content: content));
@@ -1334,6 +1398,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
+  /// Shows the voice control bottom sheet.
+  ///
+  /// Allows the user to toggle voice session, voice output, and adjust volume.
   Future<void> _showVoiceControls(BuildContext context) async {
     await NpBottomSheet.show(
       context: context,
@@ -1416,6 +1483,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
+  /// Toggles the voice session state.
+  ///
+  /// Starts or stops the speech recognition and TTS loop.
   void _toggleVoiceSession() {
     setState(() => _voiceSession = !_voiceSession);
     if (_voiceSession) {
@@ -1436,6 +1506,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
+  /// Starts listening for voice input.
+  ///
+  /// Handles speech recognition lifecycle, partial results, and silence detection.
+  /// Automatically submits the recognized text when silence is detected.
   Future<void> _startListeningForSession() async {
     if (!mounted) return;
     if (!(_voiceSession || _voiceOutput)) return;
@@ -1538,6 +1612,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
+  /// Adds an agent or component to the list of engaged entities.
+  ///
+  /// Used to track active processes (e.g., 'Time Agent', 'SpeechRecognition').
   void _engage(String name) {
     setState(() {
       if (!_engaged.contains(name)) {
@@ -1546,12 +1623,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
   }
 
+  /// Removes an agent or component from the list of engaged entities.
   void _disengage(String name) {
     setState(() {
       _engaged.removeWhere((e) => e == name);
     });
   }
 
+  /// Formats a duration in seconds into a human-readable string (e.g., "1 hour 30 minutes").
   String _formatExactDuration(int seconds) {
     if (seconds <= 0) return '0 seconds';
     final h = seconds ~/ 3600;
@@ -1564,6 +1643,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return parts.join(' ');
   }
 
+  /// Parses a natural language query for timer commands.
+  ///
+  /// Identifies if the user wants to create a timer or query existing timers.
+  /// Extracts duration and unit if creating a timer.
   _TimerParseResult _parseTimerCommand(String q) {
     final s = q.toLowerCase();
     final hasTimerWord = s.contains('timer') || s.contains('countdown');
@@ -1610,6 +1693,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return _TimerParseResult(_TimerAction.unknown);
   }
 
+  /// Formats seconds into HH:MM:SS format.
   String _formatHMS(int seconds) {
     if (seconds < 0) seconds = -seconds;
     final h = seconds ~/ 3600;
@@ -1618,11 +1702,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
+  /// Formats seconds into HH:MM:SS format with a sign prefix.
   String _formatHMSSigned(int seconds) {
     final sign = seconds < 0 ? '-' : '';
     return '$sign${_formatHMS(seconds)}';
   }
 
+  /// Extracts multiple timer queries from a single string.
+  ///
+  /// Useful for handling compound commands like "set a 5 minute timer and a 10 second timer".
   List<String> _extractTimerQueries(String q) {
     final s = q.toLowerCase();
     final re = RegExp(
@@ -1647,6 +1735,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     return queries;
   }
 
+  /// Shows a bottom sheet with advanced tools and suggestions.
+  ///
+  /// Includes tools like 'Doom Scroll Rescue' and 'External Brain',
+  /// as well as dynamic suggestions based on recent interactions.
   Future<void> _showMoreSuggestions(
       BuildContext context, AppLocalizations l) async {
     await NpBottomSheet.show(
@@ -1743,6 +1835,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     );
   }
 
+  /// Builds a UI card for a tool (e.g., Doom Scroll Rescue).
   Widget _buildToolCard(BuildContext context,
       {required String label,
       required IconData icon,

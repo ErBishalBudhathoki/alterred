@@ -7,6 +7,21 @@ import '../core/components/np_button.dart';
 import '../core/components/np_app_bar.dart';
 import '../core/components/np_snackbar.dart';
 
+/// Screen for checking backend health and latency.
+///
+/// Implementation Details:
+/// - Uses [ApiClient] to ping the backend health endpoint.
+/// - Measures round-trip latency.
+/// - Checks for MCP (Model Context Protocol) capability availability.
+///
+/// Design Decisions:
+/// - Separate checks for health, latency, and MCP allow focused debugging.
+/// - Visual indicators (status text) update dynamically based on check results.
+///
+/// Behavioral Specifications:
+/// - [Check Health]: Pings the server and displays the returned status.
+/// - [Check Latency]: Measures time taken for a health check call.
+/// - [Check MCP]: Verifies if the backend reports MCP tool availability.
 class HealthScreen extends ConsumerStatefulWidget {
   const HealthScreen({super.key});
   @override

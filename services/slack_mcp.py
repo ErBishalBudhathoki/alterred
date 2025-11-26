@@ -1,3 +1,24 @@
+"""
+Slack MCP Service
+=================
+Provides integration with Slack using the Model Context Protocol (MCP).
+Allows the agent to list channels, post messages, and read history.
+
+Implementation Details:
+- Uses `mcp` Python SDK to communicate with the `@mcp/slack` server.
+- Configures the MCP server command via environment variables (`MCP_SLACK_COMMAND`, `MCP_SLACK_ARGS`).
+- Passes the Slack token via `SLACK_MCP_TOKEN_PATH`.
+
+Design Decisions:
+- Similar to Jira and Calendar MCP services, uses a context manager (`_with_session`) for connection handling.
+- Maps high-level operations (post message, list channels) to specific MCP tools.
+- Provides a `check_ready` function for health checks.
+
+Behavioral Specifications:
+- `list_channels`: Retrieves available Slack channels.
+- `post_message`: Sends a message to a specific channel.
+- `list_messages`: Retrieves recent messages from a channel.
+"""
 import os
 from typing import Dict, Any, List
 

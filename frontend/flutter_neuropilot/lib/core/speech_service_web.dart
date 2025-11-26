@@ -22,6 +22,10 @@ class _WebSpeech implements SpeechService {
     return hasWebkit || hasStandard;
   }
 
+  /// Starts speech recognition using the Web Speech API.
+  ///
+  /// Uses either `SpeechRecognition` or `webkitSpeechRecognition`.
+  /// Sets `continuous=false` and `interimResults=true` for dictation mode.
   @override
   Future<String?> startOnce() async {
     if (!supported) return null;

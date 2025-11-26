@@ -1,3 +1,24 @@
+"""
+Compaction Service
+==================
+Manages the compaction (summarization) of long chat sessions to maintain context window efficiency.
+Uses Google's GenAI (Gemini) to generate concise summaries of recent events.
+
+Implementation Details:
+- Triggers compaction based on a turn counter (`compaction_turns`) stored in session metadata.
+- Retrieves the last N events from Firestore.
+- Sends the event content to Gemini for summarization.
+- Stores the summary in a `compactions` subcollection.
+
+Design Decisions:
+- "Compaction" strategy: Summarize the tail of the conversation periodically.
+- Stores the summary separately to avoid overwriting the raw event log.
+- Configurable interval via `COMPACTION_INTERVAL` env var.
+
+Behavioral Specifications:
+- `compact_session`: Performs the actual summarization and storage.
+- `maybe_auto_compact`: Checks the turn counter and triggers compaction if the threshold is reached.
+"""
 import os
 from typing import Dict, Any
 from datetime import datetime

@@ -1,6 +1,19 @@
 import 'package:flutter/material.dart';
 import '../design_tokens.dart';
 
+/// A set of tab buttons for navigation within a screen.
+///
+/// Implementation Details:
+/// - Wraps [TabBar] with custom styling.
+/// - Requires a [TabController] to manage state.
+///
+/// Design Decisions:
+/// - Uses a custom underline indicator with specific insets.
+/// - Clearly distinguishes selected vs unselected tabs via color.
+///
+/// Behavioral Specifications:
+/// - Updates the [controller] index on tap.
+/// - Animates the indicator between tabs.
 class NpTabs extends StatelessWidget {
   final List<Tab> tabs;
   final TabController controller;

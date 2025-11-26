@@ -3,6 +3,19 @@ import '../design_tokens.dart';
 
 enum NpButtonType { primary, secondary, success, warning, destructive }
 
+/// A standard button component with multiple semantic variants.
+///
+/// Implementation Details:
+/// - Wraps [FilledButton.icon] for consistent layout.
+/// - Handles styling logic based on [NpButtonType].
+///
+/// Design Decisions:
+/// - Loading state replaces the icon with a spinner, maintaining button width.
+/// - Semantic colors provide clear affordance for actions.
+///
+/// Behavioral Specifications:
+/// - Disables interaction when [loading] is true or [onPressed] is null.
+/// - Triggers [onPressed] when tapped.
 class NpButton extends StatelessWidget {
   final String label;
   final VoidCallback? onPressed;

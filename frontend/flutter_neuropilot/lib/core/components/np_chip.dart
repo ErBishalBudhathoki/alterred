@@ -3,6 +3,19 @@ import '../design_tokens.dart';
 
 enum NpChipType { input, filter, choice }
 
+/// A compact element for representing an attribute, action, or filter.
+///
+/// Implementation Details:
+/// - Uses [ChoiceChip] for the underlying interaction model.
+/// - Supports different semantic types (input, filter, choice) via [NpChipType].
+///
+/// Design Decisions:
+/// - Selected state inverts colors (primary background, white text) for strong visual feedback.
+/// - Rounded corners match the "organic" feel of the design system.
+///
+/// Behavioral Specifications:
+/// - Triggers [onTap] when selected.
+/// - Updates visual appearance based on [selected] state.
 class NpChip extends StatelessWidget {
   final String label;
   final NpChipType type;

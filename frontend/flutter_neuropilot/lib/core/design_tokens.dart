@@ -1,5 +1,19 @@
 import 'package:flutter/material.dart';
 
+/// Centralized design system constants for the application.
+///
+/// Implementation Details:
+/// - Defines color palettes for light and dark modes.
+/// - Standardizes spacing, border radii, and typography sizing.
+///
+/// Design Decisions:
+/// - Uses a "Slate & Blue" palette for a calming, focused aesthetic suitable for neurodiverse users.
+/// - Prefers flat design (low elevation) to reduce visual noise.
+/// - Softer border radii create a more organic, welcoming feel.
+///
+/// Behavioral Specifications:
+/// - Static constants accessed globally to ensure UI consistency.
+/// - Changes here propagate across the entire app.
 class DesignTokens {
   // Calming, focused color palette (Slate & Blue)
   // Light Mode Colors

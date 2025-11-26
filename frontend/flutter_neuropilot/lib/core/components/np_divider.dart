@@ -1,6 +1,17 @@
 import 'package:flutter/material.dart';
 import '../design_tokens.dart';
 
+/// A thin horizontal line for separating content.
+///
+/// Implementation Details:
+/// - Wraps the standard [Divider] widget.
+/// - Sets a low-opacity color for subtle visual separation.
+///
+/// Design Decisions:
+/// - Default indentation matches standard layout grid.
+///
+/// Behavioral Specifications:
+/// - Static height (1 logical pixel thickness).
 class NpDivider extends StatelessWidget {
   final double? indent;
   final double? endIndent;

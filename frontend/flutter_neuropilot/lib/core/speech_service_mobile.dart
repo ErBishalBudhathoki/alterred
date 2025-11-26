@@ -22,10 +22,14 @@ class _MobileSpeech implements SpeechService {
   int _levelSamples = 0;
   Timer? _readyProbe;
 
+  /// Creates a mobile speech service and attempts initialization.
   _MobileSpeech() {
     _init();
   }
 
+  /// Initializes the speech recognition engine.
+  ///
+  /// Sets up error and status listeners, and determines the system locale.
   Future<void> _init() async {
     try {
       _available = await _speech.initialize(
@@ -125,7 +129,8 @@ class _MobileSpeech implements SpeechService {
             _silenceTimer?.cancel();
           } else {
             _silenceTimer?.cancel();
-            _silenceTimer = Timer(const Duration(milliseconds: 10000), () async {
+            _silenceTimer =
+                Timer(const Duration(milliseconds: 10000), () async {
               if (_listening) {
                 try {
                   await _speech.stop();

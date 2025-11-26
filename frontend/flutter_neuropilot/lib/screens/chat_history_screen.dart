@@ -6,6 +6,26 @@ import '../core/routes.dart';
 import '../state/session_state.dart';
 import '../state/chat_store.dart';
 
+/// Screen for displaying the user's chat history.
+///
+/// Shows a paginated list of chat sessions, allows searching, deleting, and renaming sessions,
+/// and provides navigation to specific chats.
+///
+/// Implementation Details:
+/// - Uses a [ListView.builder] for efficient rendering of the session list.
+/// - Implements infinite scrolling by detecting when the user scrolls near the bottom.
+/// - Uses [Dismissible] for swipe-to-delete functionality.
+/// - Manages state (search query, pagination) via Riverpod providers.
+///
+/// Design Decisions:
+/// - Infinite scroll improves performance with large history.
+/// - Search functionality filters sessions server-side (implied by provider updates).
+/// - Long-press on a session tile triggers the rename dialog for better mobile UX.
+///
+/// Behavioral Specifications:
+/// - [initState]: Attaches a scroll listener for pagination and a session listener for real-time updates.
+/// - [onRefresh]: Resets pagination and reloads the session list.
+/// - [onDismissed]: Deletes the session via [ChatStore] and invalidates the provider.
 class ChatHistoryScreen extends ConsumerStatefulWidget {
   const ChatHistoryScreen({super.key});
   @override
@@ -18,6 +38,7 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
   @override
   void initState() {
     super.initState();
+    // Pagination listener
     _scrollCtl.addListener(() {
       final pos = _scrollCtl.position;
       if (pos.pixels >= pos.maxScrollExtent - 48) {
@@ -25,6 +46,7 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
         ref.read(chatSessionsPageProvider.notifier).state = p + 1;
       }
     });
+    // Attach real-time listener for sessions
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         final store = ref.read(chatStoreProvider);
@@ -65,6 +87,7 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
       ),
       body: Column(
         children: [
+          // Search Bar
           Padding(
             padding: const EdgeInsets.all(DesignTokens.spacingMd),
             child: TextField(
@@ -79,6 +102,7 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
               },
             ),
           ),
+          // Session List
           Expanded(
             child: sessionsAsync.when(
               data: (sessions) {
@@ -213,6 +237,7 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
     );
   }
 
+  /// Formats the last activity timestamp into a human-readable string.
   String _formatActivity(DateTime dt) {
     final now = DateTime.now();
     final diff = now.difference(dt);

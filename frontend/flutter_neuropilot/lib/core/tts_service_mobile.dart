@@ -7,6 +7,7 @@ class _MobileTts implements TtsService {
   final _speakingCtl = StreamController<bool>.broadcast();
   double _volume = 1.0;
 
+  /// Creates a mobile TTS service and configures event handlers.
   _MobileTts() {
     _tts.setStartHandler(() {
       _speakingCtl.add(true);
@@ -31,6 +32,10 @@ class _MobileTts implements TtsService {
     _tts.setVolume(_volume);
   }
 
+  /// Speaks the provided text using the native TTS engine.
+  ///
+  /// Configures default rate (0.5) and pitch (1.0) before speaking.
+  /// Awaits completion to ensure sequential playback if awaited.
   @override
   Future<void> speak(String text) async {
     await _tts.stop();

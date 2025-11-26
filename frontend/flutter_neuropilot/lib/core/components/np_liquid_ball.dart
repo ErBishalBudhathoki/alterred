@@ -3,6 +3,20 @@ import 'dart:math' as math;
 
 enum NpLiquidMode { idle, listening, processing, speaking }
 
+/// An animated, organic sphere visualization for voice interaction.
+///
+/// Implementation Details:
+/// - Uses a [CustomPainter] to draw a deformed circle.
+/// - Animation is driven by sine waves affecting the radius at different angles.
+///
+/// Design Decisions:
+/// - "Liquid" movement provides a more natural, less mechanical feel than standard pulses.
+/// - Distinct colors and movement patterns for each [NpLiquidMode] provide clear status feedback.
+///
+/// Behavioral Specifications:
+/// - Continously animates while mounted.
+/// - Reacts to [mode] changes by updating color.
+/// - [amplitude] and [frequency] control the "wobble" intensity.
 class NpLiquidBall extends StatefulWidget {
   final double size;
   final NpLiquidMode mode;

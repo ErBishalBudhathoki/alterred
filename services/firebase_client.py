@@ -1,3 +1,18 @@
+"""
+Firebase Client
+===============
+Provides a singleton Firestore client instance for the application.
+Handles initialization using credentials from environment variables or default application credentials.
+
+Implementation Details:
+- Uses `firebase_admin` to initialize the app.
+- Returns a `firestore.client()` instance.
+- Implements a singleton pattern to avoid multiple initializations.
+
+Design Decisions:
+- Supports both local development (via service account path) and cloud environments (default creds).
+- Lazy initialization via `get_client()`.
+"""
 import os
 from typing import Optional
 from dotenv import load_dotenv
@@ -10,6 +25,16 @@ _client: Optional[firestore.Client] = None
 
 
 def init_firebase() -> Optional[firestore.Client]:
+    """
+    Initializes the Firebase Admin SDK and Firestore client.
+    
+    Reads configuration from environment variables:
+    - FIREBASE_PROJECT_ID: The Google Cloud project ID.
+    - FIREBASE_SERVICE_ACCOUNT_PATH: Path to the service account JSON key (optional).
+    
+    Returns:
+        Optional[firestore.Client]: The initialized Firestore client, or None on failure.
+    """
     load_dotenv()
     global _initialized, _client
     if _initialized and _client is not None:
@@ -33,4 +58,11 @@ def init_firebase() -> Optional[firestore.Client]:
 
 
 def get_client() -> Optional[firestore.Client]:
+    """
+    Retrieves the singleton Firestore client instance.
+    Initializes it if necessary.
+    
+    Returns:
+        Optional[firestore.Client]: The Firestore client.
+    """
     return _client if _initialized else init_firebase()

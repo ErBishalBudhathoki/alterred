@@ -9,6 +9,12 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:firebase_core/firebase_core.dart';
 
+/// Represents a single chat session with metadata.
+///
+/// Implementation Details:
+/// - Stores session ID, title, creation/activity timestamps, and unread count.
+/// - Includes a preview snippet for list displays.
+/// - Provides `toMap` and `fromMap` for serialization.
 class ChatSession {
   final String id;
   String? title;
@@ -58,6 +64,24 @@ class ChatSession {
       );
 }
 
+/// Manages chat sessions and messages, handling local storage and Firestore sync.
+///
+/// Implementation Details:
+/// - Uses a dual-write approach: SharedPreferences for local cache, Firestore for cloud sync.
+/// - Maintains an in-memory cache of messages to reduce reads.
+/// - Sets up real-time listeners for sessions and messages if sync is enabled.
+///
+/// Design Decisions:
+/// - Sync is optional and controlled by a user preference.
+/// - Messages are stored in subcollections under the user document in Firestore.
+/// - Local storage acts as the source of truth for offline capability.
+///
+/// Behavioral Specifications:
+/// - [listSessions]: Retrieves a paginated list of chat sessions, optionally filtered by query.
+/// - [createSession]: Creates a new session locally and syncs to Firestore if enabled.
+/// - [addMessage]: Adds a message to a session, updates session metadata, and syncs.
+/// - [markRead]: Resets the unread count for a session.
+/// - [deleteSession]: Removes a session and its messages from both local and cloud storage.
 class ChatStore {
   final Uuid _uuid = const Uuid();
   final Map<String, List<ChatMessage>> _cache = {};
@@ -108,6 +132,7 @@ class ChatStore {
         'chat_sessions', jsonEncode(sessions.map((e) => e.toMap()).toList()));
   }
 
+  /// Lists available chat sessions with pagination and search.
   Future<List<ChatSession>> listSessions(
       {String? query, int offset = 0, int limit = 20}) async {
     final list = await _readAllSessions();
@@ -124,6 +149,7 @@ class ChatStore {
     return arr.sublist(offset, end);
   }
 
+  /// Creates a new chat session.
   Future<ChatSession> createSession({String? title}) async {
     final id = _uuid.v4();
     final s = ChatSession(id: id, title: title);
@@ -151,6 +177,7 @@ class ChatStore {
     return s;
   }
 
+  /// Updates the title of a session.
   Future<void> updateTitle(String id, String? title) async {
     final sessions = await _readAllSessions();
     for (final s in sessions) {
@@ -176,6 +203,7 @@ class ChatStore {
     }
   }
 
+  /// Retrieves messages for a specific session with pagination.
   Future<List<ChatMessage>> getMessages(String id,
       {int page = 0, int pageSize = 50}) async {
     if (_cache.containsKey(id)) {
@@ -207,6 +235,7 @@ class ChatStore {
     return all.sublist(safeStart, safeEnd);
   }
 
+  /// Adds a message to a session.
   Future<void> addMessage(String id, ChatMessage m) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('chat_history_$id');
@@ -270,6 +299,7 @@ class ChatStore {
     }
   }
 
+  /// Marks all messages in a session as read.
   Future<void> markRead(String id) async {
     final sessions = await _readAllSessions();
     for (final s in sessions) {
@@ -297,6 +327,7 @@ class ChatStore {
     }
   }
 
+  /// Deletes a session and its history.
   Future<void> deleteSession(String id) async {
     final prefs = await SharedPreferences.getInstance();
     final sessions = await _readAllSessions();
@@ -330,6 +361,7 @@ class ChatStore {
     }
   }
 
+  /// Attaches a listener for real-time session updates from Firestore.
   Future<void> attachSessionsListener() async {
     try {
       if (await _syncEnabled() && _uid != null) {
@@ -370,6 +402,7 @@ class ChatStore {
     } catch (_) {}
   }
 
+  /// Attaches a listener for real-time message updates for a specific session.
   Future<void> attachMessagesListener(String id) async {
     try {
       if (await _syncEnabled() && _uid != null) {
@@ -425,6 +458,7 @@ class ChatStore {
     } catch (_) {}
   }
 
+  /// Cancels all active Firestore listeners.
   Future<void> disposeListeners() async {
     try {
       _sessionsSub?.cancel();

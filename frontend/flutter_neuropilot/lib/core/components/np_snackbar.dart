@@ -3,6 +3,19 @@ import '../design_tokens.dart';
 
 enum NpSnackType { info, success, warning, destructive }
 
+/// A lightweight message with an optional action which briefly displays at the bottom of the screen.
+///
+/// Implementation Details:
+/// - Static method [show] uses [ScaffoldMessenger] to display a [SnackBar].
+/// - Custom styling based on [NpSnackType].
+///
+/// Design Decisions:
+/// - Floating behavior prevents blocking the bottom navigation bar or FAB.
+/// - Semantic colors ensure the message intent is immediately clear.
+///
+/// Behavioral Specifications:
+/// - Automatically dismisses after a timeout.
+/// - Can be dismissed by swiping or tapping an action (if added).
 class NpSnackbar {
   static void show(BuildContext context, String message, {NpSnackType type = NpSnackType.info}) {
     final bg = switch (type) {

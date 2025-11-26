@@ -19,6 +19,10 @@ class _WebTts implements TtsService {
     _volume = v.clamp(0.0, 1.0);
   }
 
+  /// Speaks the provided text using the Web Speech Synthesis API.
+  ///
+  /// Creates a `SpeechSynthesisUtterance` and sets up event listeners
+  /// to track the speaking state.
   @override
   Future<void> speak(String text) async {
     final synth = web.window.speechSynthesis;

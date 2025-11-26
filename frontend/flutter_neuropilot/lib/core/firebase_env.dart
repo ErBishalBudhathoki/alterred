@@ -1,6 +1,20 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 
+/// Firebase initialization and configuration logic.
+///
+/// Implementation Details:
+/// - Uses `String.fromEnvironment` to inject configuration at build time for web.
+/// - Delegates to platform-native configuration files (google-services.json / GoogleService-Info.plist) for mobile.
+///
+/// Design Decisions:
+/// - Environment variable injection for web allows flexible deployment without committing secrets.
+/// - Separate initialization path for web vs. mobile handles platform differences.
+///
+/// Behavioral Specifications:
+/// - [initFirebase]: Initializes the Firebase app instance.
+/// - [_webOptionsFromEnv]: Parsed environment variables into [FirebaseOptions].
+/// - Throws [UnsupportedError] if required web config is missing.
 FirebaseOptions _webOptionsFromEnv() {
   const apiKey = String.fromEnvironment('FIREBASE_API_KEY');
   const appId = String.fromEnvironment('FIREBASE_APP_ID');

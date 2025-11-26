@@ -1,3 +1,25 @@
+"""
+Jira MCP Service
+================
+Provides integration with Jira using the Model Context Protocol (MCP).
+Allows the agent to list projects, create issues, and list issues.
+
+Implementation Details:
+- Uses `mcp` Python SDK to communicate with the `@mcp/jira` server.
+- Configures the MCP server command via environment variables (`MCP_JIRA_COMMAND`, `MCP_JIRA_ARGS`).
+- Passes the Jira token via `JIRA_MCP_TOKEN_PATH`.
+
+Design Decisions:
+- Wraps MCP calls in `_with_session` context manager for connection handling.
+- Maps specific Jira operations (create issue, list projects) to MCP tools.
+- Returns standardized dictionaries with "ok" status and results.
+
+Behavioral Specifications:
+- `check_ready`: Verifies if the Jira MCP server is accessible.
+- `list_projects`: Retrieves a list of Jira projects.
+- `create_issue`: Creates a new Jira issue in a specific project.
+- `list_issues`: Lists issues for a given project.
+"""
 import os
 from typing import Dict, Any
 

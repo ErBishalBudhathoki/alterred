@@ -1,6 +1,25 @@
 """
+OAuth Handlers
+==============
 Google OAuth 2.0 handler for calendar integration.
 Manages the OAuth flow, token exchange, and refresh.
+
+Implementation Details:
+- Uses `google_auth_oauthlib` and `google.oauth2` libraries.
+- Implements the "Web Server" OAuth flow.
+- Configurable via environment variables (Client ID, Secret, Redirect URI).
+
+Design Decisions:
+- Encapsulates OAuth logic in a `GoogleOAuthHandler` class.
+- Forces consent prompt (`prompt='consent'`) to ensure a refresh token is always returned.
+- Uses CSRF protection via the `state` parameter.
+- Calculates expiry locally if not provided by the provider.
+
+Behavioral Specifications:
+- `get_authorization_url`: Generates the Google login URL.
+- `exchange_code_for_tokens`: Swaps the callback code for access/refresh tokens.
+- `refresh_access_token`: Gets a new access token using a refresh token.
+- `revoke_token`: Invalidates a token (access or refresh).
 """
 
 import os

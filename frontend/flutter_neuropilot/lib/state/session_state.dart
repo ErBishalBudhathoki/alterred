@@ -6,11 +6,30 @@ import '../core/chat_message.dart';
 import 'dart:math';
 import 'dart:convert';
 
+/// Manages the state of the chat session, including context memory and user preferences.
+///
+/// Implementation Details:
+/// - Uses Riverpod for state management (Providers, StateProviders, FutureProviders).
+/// - Persists chat history and session ID to SharedPreferences.
+/// - Provides access to the [ApiClient] with the current base URL and auth token.
+///
+/// Design Decisions:
+/// - ContextMemory is implemented as a separate class to encapsulate storage logic.
+/// - Chat history is stored as a JSON string in SharedPreferences for simplicity.
+/// - A random session ID is generated if one doesn't exist to track conversations.
+///
+/// Behavioral Specifications:
+/// - [ensureChatSessionIdProvider]: Generates a new session ID if none exists.
+/// - [ContextMemory]: Loads, saves, adds, clears, and retrieves chat messages.
+/// - [retrieve]: Performs a simple keyword-based search on chat history.
+
 final baseUrlProvider = Provider<String>((ref) => const String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: 'http://localhost:8000'));
 final tokenProvider = StateProvider<String?>((ref) => null);
 final localeProvider = StateProvider<Locale?>((ref) => null);
+
+/// Loads the saved locale from SharedPreferences.
 final savedLocaleProvider = FutureProvider<Locale?>((ref) async {
   final prefs = await SharedPreferences.getInstance();
   final code = prefs.getString('locale_code');
@@ -18,6 +37,8 @@ final savedLocaleProvider = FutureProvider<Locale?>((ref) async {
   final parts = code.split('_');
   return parts.length == 2 ? Locale(parts[0], parts[1]) : Locale(parts[0]);
 });
+
+/// Provides an instance of [ApiClient] configured with the current base URL and token.
 final apiClientProvider = Provider<ApiClient>((ref) {
   final base = ref.watch(baseUrlProvider);
   final tok = ref.watch(tokenProvider);
@@ -26,6 +47,7 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 
 final chatSessionIdProvider = StateProvider<String?>((ref) => null);
 
+/// Ensures a chat session ID exists, generating one if necessary.
 final ensureChatSessionIdProvider = FutureProvider<String>((ref) async {
   final prefs = await SharedPreferences.getInstance();
   var id = prefs.getString('chat_session_id');
@@ -41,7 +63,9 @@ final ensureChatSessionIdProvider = FutureProvider<String>((ref) async {
   return id;
 });
 
+/// Manages local storage of chat messages and highlights.
 class ContextMemory {
+  /// Loads raw message data from SharedPreferences.
   Future<List<Map<String, dynamic>>> _loadRaw() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('chat_history');
@@ -50,11 +74,13 @@ class ContextMemory {
         .map((e) => Map<String, dynamic>.from(e as Map)));
   }
 
+  /// Saves raw message data to SharedPreferences.
   Future<void> _saveRaw(List<Map<String, dynamic>> list) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('chat_history', jsonEncode(list));
   }
 
+  /// Loads all chat messages as [ChatMessage] objects.
   Future<List<ChatMessage>> loadAll() async {
     final raw = await _loadRaw();
     return raw
@@ -67,6 +93,7 @@ class ContextMemory {
         .toList();
   }
 
+  /// Adds a message to history, maintaining a maximum size.
   Future<void> add(ChatMessage m, {int maxItems = 200}) async {
     final list = await _loadRaw();
     list.add({
@@ -82,12 +109,17 @@ class ContextMemory {
     await _updateHighlights(m);
   }
 
+  /// Clears all chat history and highlights.
   Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('chat_history');
     await prefs.remove('chat_highlights');
   }
 
+  /// Retrieves relevant messages based on a query string.
+  ///
+  /// Uses a simple keyword matching algorithm to score messages.
+  /// Returns the top matching messages combined with the most recent ones.
   Future<List<ChatMessage>> retrieve(String query, {int window = 12}) async {
     final all = await loadAll();
     if (query.trim().isEmpty) {
@@ -115,6 +147,7 @@ class ContextMemory {
     return merged;
   }
 
+  /// Updates highlights based on assistant messages containing specific keywords.
   Future<void> _updateHighlights(ChatMessage m) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('chat_highlights');
@@ -143,6 +176,7 @@ final contextMemoryProvider = Provider<ContextMemory>((ref) => ContextMemory());
 
 final googleSearchEnabledProvider = StateProvider<bool>((ref) => false);
 
+/// Loads the Google Search enabled preference.
 final loadGoogleSearchEnabledProvider = FutureProvider<bool>((ref) async {
   final prefs = await SharedPreferences.getInstance();
   final v = prefs.getBool('google_search_enabled') ?? false;
@@ -152,6 +186,7 @@ final loadGoogleSearchEnabledProvider = FutureProvider<bool>((ref) async {
 
 final firestoreSyncEnabledProvider = StateProvider<bool>((ref) => false);
 
+/// Loads the Firestore Sync enabled preference.
 final loadFirestoreSyncEnabledProvider = FutureProvider<bool>((ref) async {
   final prefs = await SharedPreferences.getInstance();
   final v = prefs.getBool('firestore_sync_enabled') ?? false;

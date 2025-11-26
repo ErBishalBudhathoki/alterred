@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/components/np_app_bar.dart';
@@ -10,6 +11,21 @@ import '../core/design_tokens.dart';
 import '../core/routes.dart';
 import '../state/auth_state.dart';
 
+/// Screen for new user registration.
+///
+/// Implementation Details:
+/// - Collects name, email, and password.
+/// - Enforces password strength requirements (length, case, numbers, special chars).
+/// - Requires Terms of Service acceptance.
+///
+/// Design Decisions:
+/// - Real-time password strength indicator guides users to create secure passwords.
+/// - Multi-step validation ensures data integrity before API call.
+///
+/// Behavioral Specifications:
+/// - Updates password strength bar as user types.
+/// - Blocks submission if inputs are invalid or terms not accepted.
+/// - Creates account via [AuthController] and redirects to chat on success.
 class SignupScreen extends ConsumerStatefulWidget {
   const SignupScreen({super.key});
   @override
@@ -59,16 +75,39 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     setState(() => _loading = true);
     final ctl = ref.read(authControllerProvider);
     final displayName = '${_firstName.text.trim()} ${_lastName.text.trim()}';
-    final ok = await ctl.signUpEmail(_email.text.trim(), _password.text.trim(),
-        displayName: displayName);
-    if (!mounted) return;
-    setState(() => _loading = false);
-    if (!ok) {
-      NpSnackbar.show(context, 'Unable to create account',
+    try {
+      await ctl.signUpEmail(_email.text.trim(), _password.text.trim(),
+          displayName: displayName);
+      if (!mounted) return;
+      setState(() => _loading = false);
+      Navigator.of(context).pushNamedAndRemoveUntil(Routes.chat, (r) => false);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      String msg;
+      switch (e.code) {
+        case 'email-already-in-use':
+          msg = 'Email is already used';
+          break;
+        case 'invalid-email':
+          msg = 'The email address is badly formatted.';
+          break;
+        case 'weak-password':
+          msg = 'The password provided is too weak.';
+          break;
+        case 'operation-not-allowed':
+          msg = 'Email/password accounts are not enabled.';
+          break;
+        default:
+          msg = 'Signup failed: ${e.message}';
+      }
+      NpSnackbar.show(context, msg, type: NpSnackType.destructive);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      NpSnackbar.show(context, 'An unexpected error occurred: $e',
           type: NpSnackType.destructive);
-      return;
     }
-    Navigator.of(context).pushNamedAndRemoveUntil(Routes.chat, (r) => false);
   }
 
   @override

@@ -3,6 +3,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/design_tokens.dart';
 import '../state/auth_state.dart';
 
+/// Initial launch screen handling authentication state checks.
+///
+/// Implementation Details:
+/// - Listens to [navigationProvider] to determine the next screen (Login or Chat).
+/// - Displays an animated logo while loading.
+///
+/// Design Decisions:
+/// - Uses [FadeTransition] for a smooth visual entry.
+/// - Handles "Reduce Motion" accessibility setting by skipping animation.
+///
+/// Behavioral Specifications:
+/// - Starts animation on load.
+/// - Navigates away once auth state is determined.
+/// - Fallback to login screen on error.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
   @override

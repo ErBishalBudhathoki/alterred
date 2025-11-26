@@ -1,3 +1,21 @@
+"""
+Taskflow Agent
+==============
+Manages task breakdown, body doubling, and gamification to help users maintain focus.
+
+Implementation Details:
+- Integrates `atomize_task` to break large tasks into smaller steps.
+- Provides 'dopamine_reframe' to gamify boring tasks.
+- Supports 'body_double' mode for companionship during tasks.
+
+Design Decisions:
+- Body doubling includes periodic check-ins (`body_double_checkin`) to prevent drift.
+- `just_in_time_prompt` offers gentle nudges when inactivity is detected, avoiding shame-based prompts.
+
+Behavioral Specifications:
+- Breaks tasks down recursively if needed.
+- Monitors user activity during body doubling and intervenes gently if silence persists.
+"""
 import os
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
@@ -9,9 +27,16 @@ import random
 def dopamine_reframe(task: str) -> dict:
     """
     Reframes a boring task using multiple gamification and novelty strategies.
-    Returns ALL strategies so the user can choose which one they prefer.
+
+    Implementation Details:
+    - Returns a dictionary of strategies, allowing the user to choose the most appealing one.
+    - Strategies include 'Speed Run', 'Side Quest', 'Roleplay', etc.
+
     Args:
-        task: The task to be reframed.
+        task (str): The task to be reframed.
+
+    Returns:
+        dict: A dictionary containing the original task, available strategies, and a formatted string for display.
     """
     strategies = {
         "Speed Run": "Set a timer for 10 minutes and see how much you can get done. Beat your high score!",
@@ -38,10 +63,17 @@ def dopamine_reframe(task: str) -> dict:
 
 def body_double(mode: str = "start") -> dict:
     """
-    REQUIRED tool to start or stop body doubling mode in the UI.
-    You MUST call this tool when the user asks to start body doubling.
+    Starts or stops a body doubling session.
+
+    Implementation Details:
+    - Sets the UI mode to 'body_double' on start.
+    - Returns a confirmation message on stop.
+
     Args:
-        mode: 'start' to begin session, 'stop' to end it.
+        mode (str): 'start' to begin session, 'stop' to end it. Defaults to "start".
+
+    Returns:
+        dict: A dictionary containing the mode, a message, and the UI mode (if starting).
     """
     if mode == "stop":
         return {"mode": "stop", "message": "Body doubling session ended. Great work!"}
@@ -55,11 +87,17 @@ def body_double(mode: str = "start") -> dict:
 
 def body_double_checkin(duration_minutes: int) -> dict:
     """
-    REQUIRED tool to generate a check-in message during body doubling.
-    You MUST call this tool when the system prompts that the user has been silent.
-    Returns varied, ADHD-friendly messages.
+    Generates a check-in message during a body doubling session.
+
+    Implementation Details:
+    - Selects a random message from a curated list of ADHD-friendly prompts.
+    - Categories include gentle presence, acknowledging struggle, celebrating progress, and practical prompts.
+
     Args:
-        duration_minutes: How long the session has been running.
+        duration_minutes (int): How long the session has been running.
+
+    Returns:
+        dict: A dictionary containing the check-in status, duration, and the selected prompt.
     """
     # ADHD-friendly check-in messages - varied and supportive
     messages = [
@@ -101,10 +139,18 @@ def body_double_checkin(duration_minutes: int) -> dict:
 
 def just_in_time_prompt(activity: str, duration_seconds: int = 0) -> dict:
     """
-    Provides a gentle, non-judgmental prompt to help the user return to focus.
+    Provides a gentle prompt to help the user return to focus after distraction.
+
+    Implementation Details:
+    - Selects a random prompt designed to reduce shame and encourage resumption.
+    - Sets the UI mode to 'jit_rescue'.
+
     Args:
-        activity: The activity the user was supposed to be doing.
-        duration_seconds: How long the user was away/distracted.
+        activity (str): The activity the user was supposed to be doing.
+        duration_seconds (int): How long the user was away/distracted. Defaults to 0.
+
+    Returns:
+        dict: A dictionary containing the activity, duration, prompt, and UI mode.
     """
     prompts = [
         "Welcome back! No guilt, just restart. What's the very next micro-step?",
@@ -125,6 +171,21 @@ def just_in_time_prompt(activity: str, duration_seconds: int = 0) -> dict:
 
 
 def schedule_tasks(items: list, energy: int, deadline_weights: list | None = None) -> dict:
+    """
+    Schedules tasks based on energy levels and deadlines.
+
+    Implementation Details:
+    - Calculates a score for each task based on deadline weight and current energy.
+    - Sorts tasks by score in descending order.
+
+    Args:
+        items (list): A list of tasks to schedule.
+        energy (int): The user's current energy level.
+        deadline_weights (list | None): Optional weights for task deadlines.
+
+    Returns:
+        dict: A dictionary containing the ordered list of tasks.
+    """
     scored = []
     for i, it in enumerate(items):
         w = deadline_weights[i] if deadline_weights and i < len(deadline_weights) else 1

@@ -1,3 +1,23 @@
+"""
+Runtime Coordinator
+===================
+This module coordinates the runtime logic for the Altered agent.
+It orchestrates tool execution, brain state analysis, and response generation.
+
+Implementation Details:
+- Uses `google.genai` for the LLM client.
+- Integrates with `neuropilot_starter_code` for brain state analysis.
+- Connects to `calendar_mcp` for calendar operations.
+
+Design Decisions:
+- Separates analysis (brain state, tools) from generation (LLM response).
+- Uses a `memory` abstraction (passed as argument) for session state.
+- Handles transient errors with try-except blocks.
+
+Behavioral Specifications:
+- `respond`: Processes user input, updates state, and returns a response.
+- `summarize_history`: Compresses conversation history to save context window.
+"""
 import os
 from typing import Dict, Any
 from dotenv import load_dotenv
@@ -16,11 +36,35 @@ from services.calendar_mcp import create_calendar_event_intent, create_calendar_
 
 
 def _genai_client() -> Client:
+    """
+    Initializes and returns the Gemini GenAI client.
+    
+    Returns:
+        Client: An authenticated Google GenAI client instance.
+    """
     load_dotenv()
     return Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
 
 def respond(user_message: str, memory, session_id: str = "session") -> Dict[str, Any]:
+    """
+    Processes a user message and generates a response.
+    
+    Orchestrates the execution of various tools based on the user's input:
+    - Analyzes brain state.
+    - Atomizes tasks and estimates time.
+    - Detects hyperfocus and matches energy levels.
+    - Manages calendar events (create, list, delete, update).
+    - Generates a supportive response using the Gemini model.
+    
+    Args:
+        user_message (str): The user's input text.
+        memory: The memory service instance for session state.
+        session_id (str): The session identifier.
+        
+    Returns:
+        Dict[str, Any]: A dictionary containing the text response and tool results.
+    """
     brain = analyze_brain_state(user_message)
 
     results: Dict[str, Any] = {"brain": brain, "calls": []}
@@ -165,6 +209,25 @@ def respond(user_message: str, memory, session_id: str = "session") -> Dict[str,
             upd = update_event("primary", target["id"], start_iso, end_iso, None)
             results["calls"].append({"calendar_update": upd, "updated_event": target})
 
+    if any(k in lower for k in ["yes", "ok", "okay", "confirm", "do it", "please add", "sure"]):
+        pa = memory.get_pending_action() if memory else None
+        if pa and pa.get("type") == "calendar_create":
+            i = pa.get("intent")
+            if i:
+                cal_res = create_calendar_event(i.get("summary"), i.get("start"), i.get("end"), i.get("location"), i.get("description"))
+                results["calls"].append({"calendar_create": cal_res, "from_pending": True})
+                if memory:
+                    memory.clear_pending_action()
+
+    follow_up_phrases = [
+        "have you added", "did you add", "was it added", "did you schedule", "have you scheduled",
+        "did we create", "is it created", "did you remove", "was it removed"
+    ]
+    if any(p in lower for p in follow_up_phrases):
+        last = memory.find_last_calendar_action(session_id) if memory else None
+        if last:
+            results["calls"].append({"last_calendar_action": last})
+
     history = []
     try:
         history = memory.get_recent_messages(session_id) if memory else []
@@ -188,6 +251,16 @@ def respond(user_message: str, memory, session_id: str = "session") -> Dict[str,
 
 
 def summarize_history(memory, session_id: str):
+    """
+    Summarizes the conversation history using the LLM.
+    
+    Reduces the conversation history to a concise summary and stores it in memory
+    to maintain context without exceeding token limits.
+    
+    Args:
+        memory: The memory service instance.
+        session_id (str): The session identifier.
+    """
     try:
         msgs = memory.get_recent_messages(session_id, limit=20)
         if not msgs:
@@ -203,21 +276,3 @@ def summarize_history(memory, session_id: str):
             memory.store_message(session_id, "summary", summary)
     except Exception:
         return
-    if any(k in lower for k in ["yes", "ok", "okay", "confirm", "do it", "please add", "sure"]):
-        pa = memory.get_pending_action() if memory else None
-        if pa and pa.get("type") == "calendar_create":
-            i = pa.get("intent")
-            if i:
-                cal_res = create_calendar_event(i.get("summary"), i.get("start"), i.get("end"), i.get("location"), i.get("description"))
-                results["calls"].append({"calendar_create": cal_res, "from_pending": True})
-                if memory:
-                    memory.clear_pending_action()
-
-    follow_up_phrases = [
-        "have you added", "did you add", "was it added", "did you schedule", "have you scheduled",
-        "did we create", "is it created", "did you remove", "was it removed"
-    ]
-    if any(p in lower for p in follow_up_phrases):
-        last = memory.find_last_calendar_action(session_id) if memory else None
-        if last:
-            results["calls"].append({"last_calendar_action": last})

@@ -1,3 +1,26 @@
+"""
+Metrics Service
+===============
+Tracks and aggregates various performance and behavioral metrics for the user and the agent.
+Supports task completion tracking, decision resolution times, hyperfocus interrupts, and agent latency.
+
+Implementation Details:
+- Uses `firebase_client` to store metrics in Firestore under `users/{uid}/metrics/{date}`.
+- Stores individual events in an `events` subcollection for granular analysis.
+- Aggregates daily stats on demand via `compute_daily_overview`.
+
+Design Decisions:
+- Segregates metrics by date (`YYYY-MM-DD`) for easy daily reporting.
+- Stores raw events to allow future re-aggregation or detailed analysis.
+- Computes aggregates (averages, counts) at read time rather than write time for simplicity.
+
+Behavioral Specifications:
+- `record_task_completion`: Logs a completed task with estimated vs. actual time.
+- `record_decision_resolution`: Logs the time taken to resolve a decision.
+- `record_hyperfocus_interrupt`: Logs an interrupt event.
+- `record_agent_latency`: Logs the system's response time.
+- `compute_daily_overview`: Returns a summary dictionary for a specific date.
+"""
 import os
 from typing import Dict, Any
 from datetime import datetime

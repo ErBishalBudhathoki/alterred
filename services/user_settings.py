@@ -1,10 +1,25 @@
 """
+User Settings Service
+=====================
 User-specific settings management with encryption support.
-Handles:
-- Gemini API key storage/retrieval
-- OAuth token storage/retrieval  
-- Encryption/decryption of sensitive data
-- API key validation
+Handles secure storage and retrieval of sensitive configuration like API keys and OAuth tokens.
+
+Implementation Details:
+- Uses `cryptography.fernet` for symmetric encryption of sensitive data.
+- Stores settings in Firestore under `users/{uid}/settings` and `users/{uid}/oauth_tokens`.
+- Requires `ENCRYPTION_KEY` environment variable for initializing the cipher.
+
+Design Decisions:
+- Segregates OAuth tokens by provider (e.g., "google_calendar") for extensibility.
+- Stores encrypted values in the database; decryption happens only in memory within this service.
+- Includes a validation step (`validate_api_key`) before saving custom API keys to prevent bad config.
+
+Behavioral Specifications:
+- `save_api_key`: Encrypts and saves the user's Gemini API key.
+- `get_api_key`: Retrieves and decrypts the stored API key.
+- `save_oauth_tokens`: Encrypts and saves OAuth access/refresh tokens.
+- `get_oauth_tokens`: Retrieves and decrypts OAuth tokens for a specific provider.
+- `validate_api_key`: Static method to test if a Gemini API key is valid.
 """
 
 import os
