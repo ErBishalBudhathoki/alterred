@@ -69,3 +69,26 @@ class DesignTokens {
   static const double elevationMd = 2;
   static const double elevationLg = 4;
 }
+
+/// Standardized animation constants for consistent motion.
+class MotionTokens {
+  static const Duration durationShort = Duration(milliseconds: 200);
+  static const Duration durationMedium = Duration(milliseconds: 400);
+  static const Duration durationLong = Duration(milliseconds: 600);
+  static const Duration durationXLong = Duration(milliseconds: 800);
+
+  static const Curve curveIdle = Curves.easeInOutSine;
+  static const Curve curveAction = Curves.easeOutCubic;
+  static const Curve curveBounce = Curves.elasticOut;
+}
+
+/// Glassmorphism styles for premium UI elements.
+class GlassTokens {
+  static const double blurSm = 5.0;
+  static const double blurMd = 10.0;
+  static const double blurLg = 20.0;
+  
+  static const double opacityLow = 0.1;
+  static const double opacityMedium = 0.3;
+  static const double opacityHigh = 0.7;
+}

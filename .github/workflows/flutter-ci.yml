@@ -35,16 +35,12 @@ jobs:
         with:
           name: flutter-coverage-${{ github.ref_name }}
           path: frontend/flutter_neuropilot/coverage/lcov.info
+
       - name: Write Firebase Admin SA (for server-side steps)
         if: ${{ secrets.FIREBASE_ADMIN_SA_JSON != '' }}
         run: |
           mkdir -p credentials
           echo "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
-
-      - name: Analyze
-        working-directory: frontend/flutter_neuropilot
-        run: flutter analyze
-        continue-on-error: true
 
       - name: Run tests
         working-directory: frontend/flutter_neuropilot
@@ -129,6 +125,37 @@ jobs:
           mkdir -p credentials
           echo "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
 
+      - name: Build Web (env-specific)
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL || 'http://localhost:8000' }}
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+          FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+          FIREBASE_MEASUREMENT_ID: ${{ secrets.FIREBASE_MEASUREMENT_ID }}
+        working-directory: frontend/flutter_neuropilot
+        run: |
+          flutter build web \
+            --dart-define=FLUTTER_WEB_USE_SKIA=false \
+            --dart-define=API_BASE_URL=${API_BASE_URL} \
+            --dart-define=FIREBASE_API_KEY=${FIREBASE_API_KEY} \
+            --dart-define=FIREBASE_APP_ID=${FIREBASE_APP_ID} \
+            --dart-define=FIREBASE_MESSAGING_SENDER_ID=${FIREBASE_MESSAGING_SENDER_ID} \
+            --dart-define=FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID} \
+            --dart-define=FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN} \
+            --dart-define=FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET} \
+            --dart-define=FIREBASE_MEASUREMENT_ID=${FIREBASE_MEASUREMENT_ID}
+
+      - name: Install Playwright deps
+        run: |
+          npm install
+          npx playwright install --with-deps
+
+      - name: Run Playwright tests (Chromium/Firefox/WebKit)
+        run: npx playwright test
+
   build_android:
     runs-on: ubuntu-latest
     steps:
@@ -175,34 +202,3 @@ jobs:
         with:
           name: android-apk-production-${{ github.ref_name }}
           path: frontend/flutter_neuropilot/build/app/outputs/flutter-apk/app-production-debug.apk
-
-      - name: Build Web (env-specific)
-        env:
-          API_BASE_URL: ${{ vars.API_BASE_URL || 'http://localhost:8000' }}
-          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-          FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-          FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
-          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-          FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
-          FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
-          FIREBASE_MEASUREMENT_ID: ${{ secrets.FIREBASE_MEASUREMENT_ID }}
-        working-directory: frontend/flutter_neuropilot
-        run: |
-          flutter build web \
-            --dart-define=FLUTTER_WEB_USE_SKIA=false \
-            --dart-define=API_BASE_URL=${API_BASE_URL} \
-            --dart-define=FIREBASE_API_KEY=${FIREBASE_API_KEY} \
-            --dart-define=FIREBASE_APP_ID=${FIREBASE_APP_ID} \
-            --dart-define=FIREBASE_MESSAGING_SENDER_ID=${FIREBASE_MESSAGING_SENDER_ID} \
-            --dart-define=FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID} \
-            --dart-define=FIREBASE_AUTH_DOMAIN=${FIREBASE_AUTH_DOMAIN} \
-            --dart-define=FIREBASE_STORAGE_BUCKET=${FIREBASE_STORAGE_BUCKET} \
-            --dart-define=FIREBASE_MEASUREMENT_ID=${FIREBASE_MEASUREMENT_ID}
-
-      - name: Install Playwright deps
-        run: |
-          npm install
-          npx playwright install --with-deps
-
-      - name: Run Playwright tests (Chromium/Firefox/WebKit)
-        run: npx playwright test

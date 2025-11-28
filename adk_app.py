@@ -27,7 +27,11 @@ import urllib.parse
 import urllib.request
 import json as _json
 import asyncio
+import contextvars
 from typing import Dict, Any
+
+# Context variable to store the current user ID for tool access
+current_user_id: contextvars.ContextVar[str] = contextvars.ContextVar("current_user_id", default=None)
 
 from google.adk.agents import LlmAgent
 from google.adk.tools import google_search
@@ -51,6 +55,21 @@ from google.adk.models.google_llm import Gemini
 from google.genai import types
 from datetime import datetime
 
+# Initialize Vertex AI environment if configured
+project_id = os.getenv("VERTEX_AI_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
+
+# If project is set, we try to configure for Vertex AI
+gemini_kwargs = {}
+if project_id:
+    # Assuming Gemini class accepts kwargs that are passed to the underlying Client or configuration
+    # For google-genai v0.3+, passing these might be necessary or handled via env vars
+    gemini_kwargs = {
+        "vertexai": True,
+        "project": project_id,
+        "location": location
+    }
+
 from services.calendar_mcp import (
     create_calendar_event_intent,
     _create_event_async,
@@ -60,6 +79,7 @@ from services.calendar_mcp import (
 )
 from neuropilot_starter_code import atomize_task, reduce_options, estimate_real_time, detect_hyperfocus, match_task_to_energy
 from services.chat_commands import parse as parse_chat_command, execute as execute_chat_command, help as chat_help
+from services.user_settings import UserSettings
 
 
 def load_firestore_memory(query: str, timeframe: str = "yesterday") -> Dict[str, Any]:
@@ -113,7 +133,7 @@ async def tool_create_event(text: str) -> Dict[str, Any]:
     intent = create_calendar_event_intent(text, default_title="Appointment")
     if intent.get("ok") and intent.get("intent"):
         i = intent["intent"]
-        res = await _create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description"))
+        res = await _create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description"), user_id=current_user_id.get())
         return {"intent": i, "result": res}
     return {"error": "intent_parse_failed", "raw": intent}
 
@@ -126,7 +146,7 @@ async def tool_list_today() -> Dict[str, Any]:
     """
     start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     end = datetime.now().replace(hour=23, minute=59, second=59, microsecond=0).isoformat()
-    return await _list_events_async("primary", start, end)
+    return await _list_events_async("primary", start, end, user_id=current_user_id.get())
 
 
 async def tool_delete_event(event_id: str) -> Dict[str, Any]:
@@ -137,7 +157,7 @@ async def tool_delete_event(event_id: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Result of the deletion operation.
     """
-    return await _delete_event_async("primary", event_id)
+    return await _delete_event_async("primary", event_id, user_id=current_user_id.get())
 
 
 async def tool_update_event(event_id: str, start_iso: str, end_iso: str, description: str = "") -> Dict[str, Any]:
@@ -151,7 +171,7 @@ async def tool_update_event(event_id: str, start_iso: str, end_iso: str, descrip
     Returns:
         Dict[str, Any]: Result of the update operation.
     """
-    return await _update_event_async("primary", event_id, start_iso, end_iso, description)
+    return await _update_event_async("primary", event_id, start_iso, end_iso, description, user_id=current_user_id.get())
 
 
 def tool_task_atomize(description: str) -> Dict[str, Any]:
@@ -202,6 +222,16 @@ def tool_chat_help() -> Dict[str, Any]:
     return {"kind": "chat_help", **chat_help()}
 
 
+def tool_get_connected_email() -> Dict[str, Any]:
+    uid = current_user_id.get() or (os.getenv("USER") or "terminal_user")
+    try:
+        s = UserSettings(uid)
+        email = s.get_profile_email()
+        return {"ok": True, "email": email}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
     
 
 
@@ -224,11 +254,11 @@ async def auto_compact_callback(callback_context):
 search_tool = GoogleSearchTool(bypass_multi_tools_limit=True)
 
 agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")),
+    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest"), **gemini_kwargs),
     name="neuropilot_coordinator_adk",
     description="Coordinator agent that manages conversation and calendar operations",
     instruction=(
-        "You are अल्टर्ड, a hyper-intelligent AI assistant. You MUST use the body_double tool to start/stop sessions when requested. Do NOT just reply with text. "
+        "You are Altered, a hyper-intelligent AI assistant. You MUST use the body_double tool to start/stop sessions when requested. Do NOT just reply with text. "
         "When receiving a system check-in prompt, you MUST use the body_double_checkin tool. "
         "Maintain context across turns. Prefer using chat tools to interpret natural commands: "
         "use tool_chat_command to execute CLI-equivalent operations and tool_chat_help to surface suggestions. "
@@ -250,6 +280,7 @@ agent = LlmAgent(
         preload_firestore_memory,
         tool_chat_command,
         tool_chat_help,
+        tool_get_connected_email,
         estimate_real_time,
         detect_hyperfocus,
         create_countdown,
@@ -276,40 +307,88 @@ async def _run(user_id: str, session_id: str, text: str):
     Manages session creation/retrieval and processes the user's input.
     Args:
         user_id (str): The user's unique identifier.
-        session_id (str): The session identifier.
-        text (str): The user's input text.
-    Returns:
-        tuple: (last_text_response, list_of_tool_results)
+    Manages session creation/retrieval, credit enforcement, and processes the user's input.
     """
-    try:
-        await session_service.create_session(app_name=runner.app_name, user_id=user_id, session_id=session_id)
-    except Exception:
-        try:
-            await session_service.get_session(app_name=runner.app_name, user_id=user_id, session_id=session_id)
-        except Exception:
-            pass
-    content = types.Content(role="user", parts=[types.Part(text=text)])
-    last_text = ""
-    tool_results: Any = []
-    async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
-        if event.content and event.content.parts:
-            t = event.content.parts[0].text
-            if t and t != "None":
-                last_text = t
-        
-        # Check for function calls in event
-        if getattr(event, "actions", None):
-            actions = event.actions
-            if getattr(actions, "tools", None):
-                for tool in actions.tools:
-                    tool_results.append(tool)
-            # Also check for function_calls attribute
-            if hasattr(actions, "function_calls"):
-                for fc in actions.function_calls:
-                    if hasattr(fc, "result"):
-                        tool_results.append(fc.result)
+    # Credit enforcement and BYOK check
+    from services.credit_service import get_credit_service
+    from services.user_settings import UserSettings
     
-    return last_text, tool_results
+    credit_service = get_credit_service()
+    user_settings = UserSettings(user_id)
+    
+    # Check if user has custom API key (BYOK)
+    has_byok = user_settings.has_custom_api_key()
+    
+    # Get/initialize credit balance
+    balance_result = credit_service.get_balance(user_id)
+    current_balance = balance_result.get("balance", 0) if balance_result.get("ok") else 0
+    
+    # Credit consumption and blocking logic
+    credit_warning = None
+    if not has_byok:
+        # User is relying on organization credits
+        if current_balance <= 0:
+            # No credits left
+            return (
+                "⚠️ You've used all 6 free credits!\n\n"
+                "To continue using Altered, please add your own Gemini API key in Settings.\n\n"
+                "Get your free API key at: https://makersuite.google.com/app/apikey",
+                []
+            )
+        
+        # Consume 1 credit for this interaction
+        consume_result = credit_service.consume_credit(
+            user_id=user_id,
+            amount=1.0,
+            reason="agent_interaction",
+            metadata={"session_id": session_id, "message": text[:100]}
+        )
+        
+        if not consume_result.get("ok"):
+            return (
+                "❌ Unable to process request due to credit system error. Please try again.",
+                []
+            )
+        
+        # Generate warning for low credits
+        new_balance = consume_result.get("balance", 0)
+        if new_balance == 0:
+            credit_warning = "\n\n⚠️ This was your last free credit! Add your API key in Settings to continue."
+        elif new_balance <= 2:
+            credit_warning = f"\n\n💡 You have {int(new_balance)} free credits remaining."
+    
+    # Set user context for tools
+    token = current_user_id.set(user_id)
+    
+    try:
+        # Retrieve or create session
+        try:
+            await session_service.create_session(app_name=runner.app_name, user_id=user_id, session_id=session_id)
+        except Exception:
+            try:
+                await session_service.get_session(app_name=runner.app_name, user_id=user_id, session_id=session_id)
+            except Exception:
+                pass
+        
+        content = types.Content(role="user", parts=[types.Part(text=text)])
+        last_text = ""
+        tool_results: Any = []
+        async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    if hasattr(part, "text") and part.text:
+                        last_text = part.text
+                    if hasattr(part, "function_call") and part.function_call:
+                        tool_results.append({"tool": part.function_call.name, "args": dict(part.function_call.args)})
+        
+        # Append credit warning if applicable
+        if credit_warning and last_text:
+            last_text += credit_warning
+        
+        return last_text, tool_results
+    finally:
+        # Reset user context
+        current_user_id.reset(token)
 
 
 def adk_respond(uid: str, session_id: str, text: str):

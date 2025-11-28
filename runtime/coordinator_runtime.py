@@ -43,6 +43,15 @@ def _genai_client() -> Client:
         Client: An authenticated Google GenAI client instance.
     """
     load_dotenv()
+    
+    # Prefer Vertex AI if configured
+    project_id = os.getenv("VERTEX_AI_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
+    
+    if project_id:
+        return Client(vertexai=True, project=project_id, location=location)
+        
+    # Fallback to API Key
     return Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
 
@@ -235,7 +244,7 @@ def respond(user_message: str, memory, session_id: str = "session") -> Dict[str,
         history = []
     formatted_history = "\n".join([f"{h.get('role')}: {h.get('text')}" for h in history])
     contents = [
-        {"role": "user", "parts": [{"text": "You are NeuroPilot. Use the conversation history to maintain context. Render both real calendar events (from tools) and a brief conversation excerpt relevant to the user's request."}]},
+        {"role": "user", "parts": [{"text": "You are Altered. Use the conversation history to maintain context. Render both real calendar events (from tools) and a brief conversation excerpt relevant to the user's request."}]},
         {"role": "user", "parts": [{"text": f"Conversation History:\n{formatted_history}"}]},
         {"role": "user", "parts": [{"text": user_message}]},
         {"role": "user", "parts": [{"text": f"TOOL_OUTPUTS:\n{results}"}]},

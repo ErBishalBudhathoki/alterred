@@ -2,17 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:altered/l10n/app_localizations.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
-import '../core/components/np_app_bar.dart';
 import '../core/components/np_avatar.dart';
-import '../core/components/np_button.dart';
 import '../core/design_tokens.dart';
 import '../state/session_state.dart';
 import '../state/auth_state.dart';
 import '../core/routes.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../state/chat_store.dart';
+import '../state/user_settings_store.dart';
 import 'package:firebase_core/firebase_core.dart';
 import '../core/oauth_service.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 /// Screen for application settings and configuration.
 ///
@@ -49,6 +49,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   // Calendar OAuth state
   bool _calendarConnected = false;
   bool _loadingCalendarStatus = true;
+  bool _mcpReady = false;
+  bool _hasCalendarTokens = false;
+  String? _calendarExpiresAt;
+  String? _calendarValidateStatus;
+  bool _calendarShowDetails = false;
+  String? _calendarBannerMessage;
+  String? _googleEmail;
+  bool _loadingGoogleEmail = false;
+
+  // Credit balance state
+  int _creditBalance = 0;
+  bool _loadingCreditBalance = true;
 
   // API Key state
   bool _hasCustomApiKey = false;
@@ -67,23 +79,54 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _oauthService.initialize(onCallback: _handleOAuthCallback);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final p = await SharedPreferences.getInstance();
+      // Load settings from store (cloud-first if logged in)
+      if (!mounted) return;
+      final store = ref.read(userSettingsStoreProvider);
+      final settings = await store.loadSettings();
+
+      if (!mounted) return;
       setState(() {
-        _pulseSpeedMs = p.getInt('pulse_speed_ms') ?? 900;
-        _pulseThresholdPercent = p.getInt('pulse_threshold_percent') ?? 20;
-        _pulseMaxFreq = p.getDouble('pulse_max_freq') ?? 3.0;
-        _pulseBaseColor = p.getInt('pulse_base_color');
-        _pulseAlertColor = p.getInt('pulse_alert_color');
-        _googleSearchEnabled = p.getBool('google_search_enabled') ?? false;
-        _firestoreSyncEnabled = p.getBool('firestore_sync_enabled') ?? false;
+        _pulseSpeedMs = settings.pulseSpeedMs;
+        _pulseThresholdPercent = settings.pulseThresholdPercent;
+        _pulseMaxFreq = settings.pulseMaxFreq;
+        _pulseBaseColor = settings.pulseBaseColor;
+        _pulseAlertColor = settings.pulseAlertColor;
+        _googleSearchEnabled = settings.googleSearchEnabled;
+        _firestoreSyncEnabled = settings.firestoreSyncEnabled;
       });
+
       ref.read(googleSearchEnabledProvider.notifier).state =
           _googleSearchEnabled;
       ref.read(firestoreSyncEnabledProvider.notifier).state =
           _firestoreSyncEnabled;
+      ref.read(userSettingsProvider.notifier).state = settings;
+
+      // Attach listener for real-time sync if enabled
+      if (_firestoreSyncEnabled) {
+        await store.attachListener((updatedSettings) {
+          if (!mounted) return;
+          setState(() {
+            _pulseSpeedMs = updatedSettings.pulseSpeedMs;
+            _pulseThresholdPercent = updatedSettings.pulseThresholdPercent;
+            _pulseMaxFreq = updatedSettings.pulseMaxFreq;
+            _pulseBaseColor = updatedSettings.pulseBaseColor;
+            _pulseAlertColor = updatedSettings.pulseAlertColor;
+            _googleSearchEnabled = updatedSettings.googleSearchEnabled;
+            _firestoreSyncEnabled = updatedSettings.firestoreSyncEnabled;
+          });
+          ref.read(googleSearchEnabledProvider.notifier).state =
+              _googleSearchEnabled;
+          ref.read(firestoreSyncEnabledProvider.notifier).state =
+              _firestoreSyncEnabled;
+          ref.read(userSettingsProvider.notifier).state = updatedSettings;
+        });
+      }
 
       // Load calendar status
       _loadCalendarStatus();
+
+      // Load credit balance
+      _loadCreditBalance();
 
       // Load API key status
       _loadApiKeyStatus();
@@ -91,18 +134,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }
 
   Future<void> _savePrefs() async {
-    final p = await SharedPreferences.getInstance();
-    await p.setInt('pulse_speed_ms', _pulseSpeedMs);
-    await p.setInt('pulse_threshold_percent', _pulseThresholdPercent);
-    await p.setDouble('pulse_max_freq', _pulseMaxFreq);
-    if (_pulseBaseColor != null) {
-      await p.setInt('pulse_base_color', _pulseBaseColor!);
-    }
-    if (_pulseAlertColor != null) {
-      await p.setInt('pulse_alert_color', _pulseAlertColor!);
-    }
-    await p.setBool('google_search_enabled', _googleSearchEnabled);
-    await p.setBool('firestore_sync_enabled', _firestoreSyncEnabled);
+    final store = ref.read(userSettingsStoreProvider);
+    final currentSettings = ref.read(userSettingsProvider);
+
+    final updatedSettings = currentSettings.copyWith(
+      pulseSpeedMs: _pulseSpeedMs,
+      pulseThresholdPercent: _pulseThresholdPercent,
+      pulseMaxFreq: _pulseMaxFreq,
+      pulseBaseColor: _pulseBaseColor,
+      pulseAlertColor: _pulseAlertColor,
+      googleSearchEnabled: _googleSearchEnabled,
+      firestoreSyncEnabled: _firestoreSyncEnabled,
+    );
+
+    await store.saveSettings(updatedSettings);
+    ref.read(userSettingsProvider.notifier).state = updatedSettings;
   }
 
   Future<void> _logout() async {
@@ -123,13 +169,24 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _loadCalendarStatus() async {
     try {
-      final response =
-          await ref.read(apiClientProvider).get('/auth/google/calendar/status');
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final response = await ref
+          .read(apiClientProvider)
+          .get('/auth/google/calendar/status?_=$timestamp');
       if (mounted && response['ok'] == true) {
         setState(() {
           _calendarConnected = response['connected'] == true;
           _loadingCalendarStatus = false;
+          final d = response['details'] ?? {};
+          _hasCalendarTokens = d['has_tokens'] == true;
+          _calendarExpiresAt = d['expires_at'];
+          _mcpReady = d['mcp_ready'] == true;
         });
+        if (_calendarConnected) {
+          _loadGoogleEmail();
+        } else {
+          setState(() => _googleEmail = null);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -169,9 +226,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           while (attempts < maxAttempts) {
             await Future.delayed(const Duration(seconds: 2));
             try {
+              final timestamp = DateTime.now().millisecondsSinceEpoch;
               final status = await ref
                   .read(apiClientProvider)
-                  .get('/auth/google/calendar/status');
+                  .get('/auth/google/calendar/status?_=$timestamp');
               if (status['ok'] == true && status['connected'] == true) {
                 if (!mounted) break;
                 setState(() => _calendarConnected = true);
@@ -179,6 +237,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   const SnackBar(
                       content: Text('Calendar connected successfully!')),
                 );
+                _loadGoogleEmail();
                 break;
               }
             } catch (_) {}
@@ -192,6 +251,35 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           SnackBar(content: Text('Error: $e')),
         );
       }
+    }
+  }
+
+  Future<void> _validateCalendar() async {
+    try {
+      final response = await ref
+          .read(apiClientProvider)
+          .get('/auth/google/calendar/validate');
+      if (!mounted) return;
+      if (response['ok'] == true) {
+        setState(() {
+          _calendarValidateStatus = response['status'];
+          _calendarConnected = response['connected'] == true;
+          _calendarBannerMessage = _calendarConnected
+              ? 'Calendar connected successfully'
+              : 'Re-authentication required';
+        });
+        await _loadCalendarStatus();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(_calendarBannerMessage!)),
+          );
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Validation error: $e')),
+      );
     }
   }
 
@@ -227,7 +315,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           .get('/auth/google/calendar/callback?code=$code&state=$state');
 
       if (response['ok'] == true) {
-        setState(() => _calendarConnected = true);
+        setState(() {
+          _calendarConnected = true;
+          _calendarBannerMessage = 'Calendar connected successfully!';
+        });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Calendar connected successfully!')),
@@ -254,6 +345,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       await ref.read(apiClientProvider).delete('/auth/google/calendar');
       setState(() => _calendarConnected = false);
+      setState(() => _googleEmail = null);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Calendar disconnected')),
@@ -265,6 +357,45 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e')),
         );
+      }
+    }
+  }
+
+  Future<void> _loadGoogleEmail() async {
+    try {
+      setState(() => _loadingGoogleEmail = true);
+      final r = await ref.read(apiClientProvider).get('/auth/google/userinfo');
+      if (!mounted) return;
+      if (r['ok'] == true) {
+        setState(() {
+          _googleEmail = r['email'] as String?;
+          _loadingGoogleEmail = false;
+        });
+      } else {
+        setState(() {
+          _googleEmail = null;
+          _loadingGoogleEmail = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loadingGoogleEmail = false);
+    }
+  }
+
+  Future<void> _loadCreditBalance() async {
+    try {
+      final response =
+          await ref.read(apiClientProvider).get('/credits/balance');
+      if (mounted && response['ok'] == true) {
+        setState(() {
+          _creditBalance = (response['balance'] ?? 0).toInt();
+          _loadingCreditBalance = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loadingCreditBalance = false);
       }
     }
   }
@@ -360,548 +491,772 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final projectId = Firebase.app().options.projectId;
 
     return Scaffold(
-      appBar: NpAppBar(title: l.settingsTitle),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(DesignTokens.spacingLg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // User Profile Section
-            if (user != null) ...[
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(DesignTokens.spacingMd),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            title: Text(l.settingsTitle),
+            centerTitle: false,
+            surfaceTintColor: Colors.transparent,
+            floating: true,
+            snap: true,
+          ),
+          SliverPadding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: DesignTokens.spacingLg),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                // User Profile
+                if (user != null)
+                  _SettingsSection(
+                    title: 'Profile',
+                    icon: Icons.person_outline,
+                    delay: 0.ms,
                     children: [
-                      Row(
-                        children: [
-                          NpAvatar(
-                            name: user.displayName ?? user.email,
-                            imageUrl: user.photoURL,
-                            size: 60,
-                          ),
-                          const SizedBox(width: DesignTokens.spacingMd),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  user.displayName ?? 'User',
-                                  style:
-                                      Theme.of(context).textTheme.titleMedium,
-                                ),
-                                Text(
-                                  user.email ?? '',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: DesignTokens.spacingMd),
-                      NpButton(
-                        label: 'Logout',
-                        icon: Icons.logout,
-                        type: NpButtonType.destructive,
-                        onPressed: _logout,
-                      ),
-                      const SizedBox(height: DesignTokens.spacingSm),
-                      Text('Firebase: uid=${user.uid} project=$projectId',
-                          style: Theme.of(context).textTheme.labelSmall),
+                      _buildProfileCard(context, user, projectId),
                     ],
                   ),
-                ),
-              ),
-              const SizedBox(height: DesignTokens.spacingLg),
-            ],
 
-            // Calendar Integration Section
-            if (user != null) ...[
-              Text('Calendar Integration',
-                  style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: DesignTokens.spacingMd),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(DesignTokens.spacingMd),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                // Calendar
+                if (user != null)
+                  _SettingsSection(
+                    title: 'Calendar',
+                    icon: Icons.calendar_today_outlined,
+                    delay: 100.ms,
                     children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.calendar_today, size: 32),
-                          const SizedBox(width: DesignTokens.spacingMd),
-                          Expanded(
-                            child: Text(
-                              'Google Calendar',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          if (_loadingCalendarStatus)
-                            const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          else
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _calendarConnected
-                                    ? Theme.of(context)
-                                        .colorScheme
-                                        .primaryContainer
-                                    : Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                _calendarConnected
-                                    ? 'Connected'
-                                    : 'Not Connected',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
-                                    ?.copyWith(
-                                      color: _calendarConnected
-                                          ? Theme.of(context)
-                                              .colorScheme
-                                              .onPrimaryContainer
-                                          : Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                    ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: DesignTokens.spacingMd),
-                      Text(
-                        _calendarConnected
-                            ? 'Your calendar is connected. The app can create and read events from your Google Calendar.'
-                            : 'Connect your Google Calendar to enable calendar features like creating events and viewing your schedule.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: DesignTokens.spacingMd),
-                      if (_calendarConnected)
-                        NpButton(
-                          label: 'Disconnect Calendar',
-                          icon: Icons.link_off,
-                          type: NpButtonType.secondary,
-                          onPressed: _disconnectCalendar,
-                        )
-                      else
-                        NpButton(
-                          label: 'Connect Google Calendar',
-                          icon: Icons.link,
-                          onPressed: _connectCalendar,
-                        ),
+                      _buildCalendarCard(context),
                     ],
                   ),
-                ),
-              ),
-              const SizedBox(height: DesignTokens.spacingLg),
-            ],
 
-            // API Key Configuration Section
-            if (user != null) ...[
-              Text('API Configuration',
-                  style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: DesignTokens.spacingMd),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(DesignTokens.spacingMd),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                // Usage
+                if (user != null)
+                  _SettingsSection(
+                    title: 'Usage & Credits',
+                    icon: Icons.stars_outlined,
+                    delay: 200.ms,
                     children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.key, size: 32),
-                          const SizedBox(width: DesignTokens.spacingMd),
-                          Expanded(
-                            child: Text(
-                              'Gemini API Key',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                          ),
-                          if (_loadingApiKeyStatus)
-                            const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          else
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _hasCustomApiKey
-                                    ? Theme.of(context)
-                                        .colorScheme
-                                        .primaryContainer
-                                    : Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                _hasCustomApiKey
-                                    ? 'Custom Key'
-                                    : 'System Default',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .labelSmall
-                                    ?.copyWith(
-                                      color: _hasCustomApiKey
-                                          ? Theme.of(context)
-                                              .colorScheme
-                                              .onPrimaryContainer
-                                          : Theme.of(context)
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                    ),
-                              ),
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: DesignTokens.spacingMd),
-                      Text(
-                        _hasCustomApiKey
-                            ? 'You are using your own Gemini API key. This ensures your usage is separate from the shared quota.'
-                            : 'Using the system default API key. You can provide your own key for dedicated quota.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      const SizedBox(height: DesignTokens.spacingMd),
-                      if (_hasCustomApiKey) ...[
-                        Row(
-                          children: [
-                            Expanded(
-                              child: NpButton(
-                                label: 'Remove Custom Key',
-                                icon: Icons.delete_outline,
-                                type: NpButtonType.destructive,
-                                onPressed: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (context) => AlertDialog(
-                                      title: const Text('Remove API Key?'),
-                                      content: const Text(
-                                        'This will remove your custom API key and fall back to the system default.',
-                                      ),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () =>
-                                              Navigator.pop(context),
-                                          child: const Text('Cancel'),
-                                        ),
-                                        TextButton(
-                                          onPressed: () {
-                                            Navigator.pop(context);
-                                            _deleteApiKey();
-                                          },
-                                          child: const Text('Remove'),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                      ] else ...[
-                        TextField(
-                          decoration: const InputDecoration(
-                            labelText: 'Enter your Gemini API Key',
-                            hintText: 'AIza...',
-                            border: OutlineInputBorder(),
-                          ),
-                          obscureText: true,
-                          onChanged: (value) => _apiKeyInput = value,
-                        ),
-                        const SizedBox(height: DesignTokens.spacingSm),
-                        Text(
-                          'Get your API key from Google AI Studio',
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        const SizedBox(height: DesignTokens.spacingMd),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: NpButton(
-                                label: _validatingApiKey
-                                    ? 'Validating...'
-                                    : 'Save API Key',
-                                icon: _validatingApiKey ? null : Icons.save,
-                                onPressed:
-                                    _validatingApiKey ? null : _saveApiKey,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                      _buildUsageCard(context),
                     ],
                   ),
+
+                // API Key
+                if (user != null)
+                  _SettingsSection(
+                    title: 'API Configuration',
+                    icon: Icons.key_outlined,
+                    delay: 300.ms,
+                    children: [
+                      _buildApiKeyCard(context),
+                    ],
+                  ),
+
+                // Language
+                _SettingsSection(
+                  title: l.languageLabel,
+                  icon: Icons.language_outlined,
+                  delay: 400.ms,
+                  children: [
+                    _buildLanguageCard(context, locale, l),
+                  ],
+                ),
+
+                // Preferences
+                _SettingsSection(
+                  title: 'Preferences',
+                  icon: Icons.tune_outlined,
+                  delay: 500.ms,
+                  children: [
+                    _buildPreferencesCard(context, user),
+                  ],
+                ),
+
+                // Advanced Visuals (Pulse)
+                _SettingsSection(
+                  title: 'Visuals',
+                  icon: Icons.visibility_outlined,
+                  delay: 600.ms,
+                  children: [
+                    _buildPulseSettingsCard(context),
+                  ],
+                ),
+
+                const SizedBox(height: 100), // Bottom padding
+              ]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileCard(
+      BuildContext context, dynamic user, String projectId) {
+    return Container(
+      padding: const EdgeInsets.all(DesignTokens.spacingMd),
+      decoration: _glassDecoration(context),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Hero(
+                tag: 'profile_avatar',
+                child: NpAvatar(
+                  name: user.displayName ?? user.email,
+                  imageUrl: user.photoURL,
+                  size: 64,
+                ),
+              ).animate().scale(duration: 400.ms, curve: Curves.easeOutBack),
+              const SizedBox(width: DesignTokens.spacingMd),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.displayName ?? 'User',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    Text(
+                      user.email ?? '',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color:
+                                Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: DesignTokens.spacingLg),
+              IconButton(
+                onPressed: _logout,
+                icon: const Icon(Icons.logout_rounded),
+                tooltip: 'Logout',
+                style: IconButton.styleFrom(
+                  foregroundColor: DesignTokens.error,
+                  backgroundColor: DesignTokens.error.withOpacity(0.1),
+                ),
+              ),
             ],
+          ),
+          const SizedBox(height: DesignTokens.spacingSm),
+          Divider(color: Theme.of(context).dividerColor.withOpacity(0.1)),
+          const SizedBox(height: DesignTokens.spacingXs),
+          // Row(
+          //   mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          //   children: [
+          //     Text(
+          //       'Project ID',
+          //       style: Theme.of(context).textTheme.labelSmall,
+          //     ),
+          //     Text(
+          //       projectId,
+          //       style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          //             fontFamily: 'monospace',
+          //             color: Theme.of(context).colorScheme.primary,
+          //           ),
+          //     ),
+          //   ],
+          // ),
+        ],
+      ),
+    );
+  }
 
-            Text(l.languageLabel,
-                style: Theme.of(context).textTheme.titleLarge),
+  Widget _buildCalendarCard(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(DesignTokens.spacingMd),
+      decoration: _glassDecoration(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: _calendarConnected
+                      ? DesignTokens.success.withOpacity(0.1)
+                      : Theme.of(context).colorScheme.surfaceContainerHighest,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.calendar_today_rounded,
+                  color: _calendarConnected
+                      ? DesignTokens.success
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                  size: 24,
+                ),
+              )
+                  .animate(target: _calendarConnected ? 1 : 0)
+                  .scale(curve: Curves.easeOutBack),
+              const SizedBox(width: DesignTokens.spacingMd),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Google Calendar',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    Text(
+                      _calendarConnected ? 'Connected' : 'Not Connected',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: _calendarConnected
+                                ? DesignTokens.success
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                            fontWeight: _calendarConnected
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                          ),
+                    ).animate(target: _calendarConnected ? 1 : 0).fadeIn(),
+                  ],
+                ),
+              ),
+              if (_loadingCalendarStatus)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: DesignTokens.spacingMd),
+          Text(
+            _calendarConnected
+                ? 'Your calendar is synced. The AI can help you manage your schedule.'
+                : 'Connect to enable AI scheduling assistance.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: DesignTokens.spacingMd),
+          if (_calendarConnected) ...[
+            if (_googleEmail != null)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface.withOpacity(0.5),
+                  borderRadius: BorderRadius.circular(DesignTokens.radiusSm),
+                  border: Border.all(
+                      color: Theme.of(context).dividerColor.withOpacity(0.1)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.account_circle_outlined, size: 16),
+                    const SizedBox(width: 8),
+                    Text(
+                      _googleEmail!,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ],
+                ),
+              ),
             const SizedBox(height: DesignTokens.spacingMd),
-            RadioGroup<Locale>(
-              groupValue: locale,
-              onChanged: (v) async {
-                ref.read(localeProvider.notifier).state = v;
-                final p = await SharedPreferences.getInstance();
-                if (v != null) {
-                  await p.setString('locale_code',
-                      '${v.languageCode}${v.countryCode != null ? '_${v.countryCode}' : ''}');
-                }
-              },
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  RadioListTile<Locale>(
-                    title: Text(l.languageEnglish),
-                    value: const Locale('en'),
-                    selected: locale == const Locale('en'),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _disconnectCalendar,
+                    icon: const Icon(Icons.link_off_rounded, size: 18),
+                    label: const Text('Disconnect'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: DesignTokens.error,
+                      side: const BorderSide(color: DesignTokens.error),
+                    ),
                   ),
-                  RadioListTile<Locale>(
-                    title: Text(l.languageHindi),
-                    value: const Locale('hi'),
-                    selected: locale == const Locale('hi'),
-                  ),
-                ],
+                ),
+              ],
+            ),
+          ] else
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _connectCalendar,
+                icon: const Icon(Icons.link_rounded),
+                label: const Text('Connect Calendar'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: DesignTokens.onPrimary,
+                ),
               ),
             ),
-            const SizedBox(height: DesignTokens.spacingLg),
-            Row(children: [
+
+          // Validation & More
+          if (_calendarConnected) ...[
+            const SizedBox(height: DesignTokens.spacingSm),
+            ExpansionTile(
+              title: Text('Connection Details',
+                  style: Theme.of(context).textTheme.labelMedium),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              shape: const Border(),
+              children: [
+                _buildDetailRow(
+                    'Tokens', _hasCalendarTokens ? 'Present' : 'Missing'),
+                if (_calendarExpiresAt != null)
+                  _buildDetailRow('Expires', _calendarExpiresAt!),
+                _buildDetailRow(
+                    'MCP Status', _mcpReady ? 'Ready' : 'Unavailable'),
+                if (_calendarValidateStatus != null)
+                  _buildDetailRow('Validation', _calendarValidateStatus!),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    TextButton.icon(
+                      onPressed: _validateCalendar,
+                      icon: const Icon(Icons.refresh_rounded, size: 16),
+                      label: const Text('Validate Connection'),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ]
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+          Text(value,
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUsageCard(BuildContext context) {
+    final color = _creditBalance > 2
+        ? DesignTokens.success
+        : _creditBalance > 0
+            ? DesignTokens.warning
+            : DesignTokens.error;
+
+    return Container(
+      padding: const EdgeInsets.all(DesignTokens.spacingMd),
+      decoration: _glassDecoration(context),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Free Credits',
+                  style: Theme.of(context).textTheme.titleMedium),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.bolt_rounded, size: 16, color: color),
+                    const SizedBox(width: 4),
+                    Text(
+                      '$_creditBalance',
+                      style:
+                          TextStyle(color: color, fontWeight: FontWeight.bold),
+                    )
+                        .animate(key: ValueKey(_creditBalance))
+                        .scale(duration: 200.ms, curve: Curves.easeOutBack),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: DesignTokens.spacingMd),
+          LinearProgressIndicator(
+            value: (_creditBalance / 10)
+                .clamp(0.0, 1.0), // Assuming 10 is max for visual
+            backgroundColor: Theme.of(context).dividerColor.withOpacity(0.1),
+            color: color,
+            borderRadius: BorderRadius.circular(4),
+          ).animate(key: ValueKey(_creditBalance)).shimmer(duration: 1000.ms),
+          const SizedBox(height: DesignTokens.spacingSm),
+          Text(
+            _creditBalance > 0
+                ? 'Each interaction uses 1 credit.'
+                : 'You have used all your free credits.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildApiKeyCard(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(DesignTokens.spacingMd),
+      decoration: _glassDecoration(context),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                _hasCustomApiKey
+                    ? Icons.vpn_key_rounded
+                    : Icons.vpn_key_off_rounded,
+                color: _hasCustomApiKey
+                    ? DesignTokens.primary
+                    : Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: DesignTokens.spacingMd),
               Expanded(
-                child: SwitchListTile(
-                  title: const Text('Google Search'),
-                  value: _googleSearchEnabled,
-                  onChanged: (v) async {
-                    setState(() => _googleSearchEnabled = v);
-                    ref.read(googleSearchEnabledProvider.notifier).state = v;
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _hasCustomApiKey
+                          ? 'Custom API Key Active'
+                          : 'Using System Key',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    Text(
+                      _hasCustomApiKey
+                          ? 'Unlimited usage enabled'
+                          : 'Limited to free quota',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: DesignTokens.spacingMd),
+          if (_hasCustomApiKey)
+            OutlinedButton.icon(
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => AlertDialog(
+                    title: const Text('Remove API Key?'),
+                    content: const Text(
+                        'This will revert to the limited system quota.'),
+                    actions: [
+                      TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Cancel')),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _deleteApiKey();
+                        },
+                        child: const Text('Remove'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+              icon: const Icon(Icons.delete_outline_rounded),
+              label: const Text('Remove Custom Key'),
+              style:
+                  OutlinedButton.styleFrom(foregroundColor: DesignTokens.error),
+            )
+          else
+            Column(
+              children: [
+                TextField(
+                  decoration: InputDecoration(
+                    labelText: 'Gemini API Key',
+                    hintText: 'AIza...',
+                    border: OutlineInputBorder(
+                        borderRadius:
+                            BorderRadius.circular(DesignTokens.radiusSm)),
+                    filled: true,
+                    fillColor:
+                        Theme.of(context).colorScheme.surface.withOpacity(0.5),
+                  ),
+                  obscureText: true,
+                  onChanged: (v) => _apiKeyInput = v,
+                ),
+                const SizedBox(height: DesignTokens.spacingSm),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _validatingApiKey ? null : _saveApiKey,
+                    child: _validatingApiKey
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2, color: Colors.white))
+                        : const Text('Save API Key'),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLanguageCard(
+      BuildContext context, Locale? locale, AppLocalizations l) {
+    return Container(
+      decoration: _glassDecoration(context),
+      child: Column(
+        children: [
+          RadioListTile<Locale>(
+            title: Text(l.languageEnglish),
+            value: const Locale('en'),
+            groupValue: locale,
+            onChanged: (v) => _updateLocale(v),
+            activeColor: DesignTokens.primary,
+          ),
+          Divider(
+              height: 1,
+              color: Theme.of(context).dividerColor.withOpacity(0.1)),
+          RadioListTile<Locale>(
+            title: Text(l.languageHindi),
+            value: const Locale('hi'),
+            groupValue: locale,
+            onChanged: (v) => _updateLocale(v),
+            activeColor: DesignTokens.primary,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _updateLocale(Locale? v) async {
+    if (v == null) return;
+    ref.read(localeProvider.notifier).state = v;
+
+    final store = ref.read(userSettingsStoreProvider);
+    final currentSettings = ref.read(userSettingsProvider);
+
+    final updatedSettings = currentSettings.copyWith(
+      localeCode:
+          '${v.languageCode}${v.countryCode != null ? '_${v.countryCode}' : ''}',
+    );
+
+    await store.saveSettings(updatedSettings);
+    ref.read(userSettingsProvider.notifier).state = updatedSettings;
+  }
+
+  Widget _buildPreferencesCard(BuildContext context, dynamic user) {
+    return Container(
+      decoration: _glassDecoration(context),
+      child: Column(
+        children: [
+          SwitchListTile(
+            title: const Text('Google Search'),
+            subtitle: const Text('Allow AI to search the web'),
+            value: _googleSearchEnabled,
+            onChanged: (v) async {
+              setState(() => _googleSearchEnabled = v);
+              ref.read(googleSearchEnabledProvider.notifier).state = v;
+              await _savePrefs();
+            },
+            activeColor: DesignTokens.primary,
+          ),
+          Divider(
+              height: 1,
+              color: Theme.of(context).dividerColor.withOpacity(0.1)),
+          SwitchListTile(
+            title: const Text('Firestore Sync'),
+            subtitle: Text(user == null
+                ? 'Sign in required'
+                : 'Sync settings & chats across devices'),
+            value: _firestoreSyncEnabled,
+            onChanged: user == null
+                ? null
+                : (v) async {
+                    setState(() => _firestoreSyncEnabled = v);
+                    ref.read(firestoreSyncEnabledProvider.notifier).state = v;
+
+                    final chatStore = ref.read(chatStoreProvider);
+                    final settingsStore = ref.read(userSettingsStoreProvider);
+
+                    if (v) {
+                      // Enable sync: migrate settings to cloud and attach listeners
+                      try {
+                        await settingsStore.migrateToCloud();
+                        await settingsStore.attachListener((updatedSettings) {
+                          if (mounted) {
+                            setState(() {
+                              _pulseSpeedMs = updatedSettings.pulseSpeedMs;
+                              _pulseThresholdPercent =
+                                  updatedSettings.pulseThresholdPercent;
+                              _pulseMaxFreq = updatedSettings.pulseMaxFreq;
+                              _pulseBaseColor = updatedSettings.pulseBaseColor;
+                              _pulseAlertColor =
+                                  updatedSettings.pulseAlertColor;
+                              _googleSearchEnabled =
+                                  updatedSettings.googleSearchEnabled;
+                              _firestoreSyncEnabled =
+                                  updatedSettings.firestoreSyncEnabled;
+                            });
+                            ref
+                                .read(googleSearchEnabledProvider.notifier)
+                                .state = _googleSearchEnabled;
+                            ref
+                                .read(firestoreSyncEnabledProvider.notifier)
+                                .state = _firestoreSyncEnabled;
+                            ref.read(userSettingsProvider.notifier).state =
+                                updatedSettings;
+                          }
+                        });
+                        await chatStore.attachSessionsListener();
+                      } catch (_) {}
+                    } else {
+                      // Disable sync: dispose listeners
+                      await settingsStore.disposeListener();
+                      await chatStore.disposeListeners();
+                    }
                     await _savePrefs();
                   },
-                ),
-              ),
-            ]),
-            const SizedBox(height: DesignTokens.spacingMd),
-            Row(children: [
-              Expanded(
-                child: SwitchListTile(
-                  title: const Text('Firestore Sync'),
-                  value: _firestoreSyncEnabled,
-                  subtitle:
-                      user == null ? const Text('Sign in required') : null,
-                  onChanged: user == null
-                      ? null
-                      : (v) async {
-                          setState(() => _firestoreSyncEnabled = v);
-                          ref
-                              .read(firestoreSyncEnabledProvider.notifier)
-                              .state = v;
-                          final store = ref.read(chatStoreProvider);
-                          if (v) {
-                            try {
-                              await store.attachSessionsListener();
-                            } catch (_) {}
-                          } else {
-                            await store.disposeListeners();
-                          }
-                          await _savePrefs();
-                        },
-                ),
-              ),
-            ]),
-            const SizedBox(height: DesignTokens.spacingLg),
-            Text('Timer Pulse', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: DesignTokens.spacingMd),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Threshold %: $_pulseThresholdPercent'),
-                      Slider(
-                        min: 5,
-                        max: 50,
-                        divisions: 45,
-                        value: _pulseThresholdPercent.toDouble(),
-                        onChanged: (v) =>
-                            setState(() => _pulseThresholdPercent = v.round()),
-                        onChangeEnd: (_) => _savePrefs(),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('Pulse speed ms: $_pulseSpeedMs'),
-                      Slider(
-                        min: 300,
-                        max: 1500,
-                        divisions: 12,
-                        value: _pulseSpeedMs.toDouble(),
-                        onChanged: (v) =>
-                            setState(() => _pulseSpeedMs = v.round()),
-                        onChangeEnd: (_) => _savePrefs(),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                          'Max frequency: ${_pulseMaxFreq.toStringAsFixed(1)}x'),
-                      Slider(
-                        min: 1.0,
-                        max: 4.0,
-                        divisions: 30,
-                        value: _pulseMaxFreq,
-                        onChanged: (v) => setState(() => _pulseMaxFreq = v),
-                        onChangeEnd: (_) => _savePrefs(),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Base color'),
-                      DropdownButton<int?>(
-                        value: _pulseBaseColor,
-                        items: [
-                          const DropdownMenuItem(
-                              value: null, child: Text('Default')),
-                          DropdownMenuItem(
-                              value: Theme.of(context)
-                                  .colorScheme
-                                  .primary
-                                  .toARGB32(),
-                              child: Row(children: [
-                                Container(
-                                    width: 16,
-                                    height: 16,
-                                    color:
-                                        Theme.of(context).colorScheme.primary),
-                                const SizedBox(width: 8),
-                                const Text('Primary')
-                              ])),
-                          DropdownMenuItem(
-                              value: Theme.of(context)
-                                  .colorScheme
-                                  .outline
-                                  .toARGB32(),
-                              child: Row(children: [
-                                Container(
-                                    width: 16,
-                                    height: 16,
-                                    color:
-                                        Theme.of(context).colorScheme.outline),
-                                const SizedBox(width: 8),
-                                const Text('Outline')
-                              ])),
-                        ],
-                        onChanged: (v) async {
-                          setState(() => _pulseBaseColor = v);
-                          await _savePrefs();
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: DesignTokens.spacingLg),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Alert color'),
-                      DropdownButton<int?>(
-                        value: _pulseAlertColor,
-                        items: [
-                          const DropdownMenuItem(
-                              value: null, child: Text('Default')),
-                          DropdownMenuItem(
-                              value: Theme.of(context)
-                                  .colorScheme
-                                  .error
-                                  .toARGB32(),
-                              child: Row(children: [
-                                Container(
-                                    width: 16,
-                                    height: 16,
-                                    color: Theme.of(context).colorScheme.error),
-                                const SizedBox(width: 8),
-                                const Text('Error')
-                              ])),
-                          DropdownMenuItem(
-                              value: Theme.of(context)
-                                  .colorScheme
-                                  .secondary
-                                  .toARGB32(),
-                              child: Row(children: [
-                                Container(
-                                    width: 16,
-                                    height: 16,
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .secondary),
-                                const SizedBox(width: 8),
-                                const Text('Secondary')
-                              ])),
-                        ],
-                        onChanged: (v) async {
-                          setState(() => _pulseAlertColor = v);
-                          await _savePrefs();
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: DesignTokens.spacingSm),
-            Align(
-              alignment: Alignment.centerRight,
-              child: NpButton(
-                  label: 'Save',
-                  icon: Icons.save,
-                  onPressed: () async {
-                    await _savePrefs();
-                  }),
-            ),
+            activeColor: DesignTokens.primary,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPulseSettingsCard(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(DesignTokens.spacingMd),
+      decoration: _glassDecoration(context),
+      child: Column(
+        children: [
+          _buildSliderRow(
+              'Sensitivity',
+              '$_pulseThresholdPercent%',
+              _pulseThresholdPercent.toDouble(),
+              5,
+              50,
+              (v) => setState(() => _pulseThresholdPercent = v.round())),
+          const SizedBox(height: DesignTokens.spacingMd),
+          _buildSliderRow(
+              'Speed',
+              '${_pulseSpeedMs}ms',
+              _pulseSpeedMs.toDouble(),
+              300,
+              1500,
+              (v) => setState(() => _pulseSpeedMs = v.round())),
+          const SizedBox(height: DesignTokens.spacingMd),
+          _buildSliderRow(
+              'Max Frequency',
+              '${_pulseMaxFreq.toStringAsFixed(1)}x',
+              _pulseMaxFreq,
+              1.0,
+              4.0,
+              (v) => setState(() => _pulseMaxFreq = v)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSliderRow(String label, String valueLabel, double value,
+      double min, double max, ValueChanged<double> onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: Theme.of(context).textTheme.bodyMedium),
+            Text(valueLabel,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.bold, color: DesignTokens.primary)),
           ],
         ),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            activeTrackColor: DesignTokens.primary,
+            inactiveTrackColor: DesignTokens.primary.withOpacity(0.2),
+            thumbColor: DesignTokens.primary,
+            overlayColor: DesignTokens.primary.withOpacity(0.1),
+            trackHeight: 4,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+          ),
+          child: Slider(
+            value: value,
+            min: min,
+            max: max,
+            onChanged: onChanged,
+            onChangeEnd: (_) => _savePrefs(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  BoxDecoration _glassDecoration(BuildContext context) {
+    return BoxDecoration(
+      color: Theme.of(context).colorScheme.surface.withOpacity(0.7),
+      borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
+      border: Border.all(
+        color: Colors.white.withOpacity(0.5),
+        width: 1,
+      ),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.05),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        ),
+      ],
+    );
+  }
+}
+
+class _SettingsSection extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final List<Widget> children;
+  final Duration delay;
+
+  const _SettingsSection({
+    required this.title,
+    required this.icon,
+    required this.children,
+    required this.delay,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: DesignTokens.spacingLg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon,
+                  size: 20, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: DesignTokens.spacingSm),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+              ),
+            ],
+          )
+              .animate()
+              .fadeIn(delay: delay, duration: 400.ms)
+              .slideX(begin: -0.1, end: 0),
+          const SizedBox(height: DesignTokens.spacingSm),
+          ...children.map((child) => child
+              .animate()
+              .fadeIn(delay: delay + 100.ms, duration: 500.ms)
+              .slideY(begin: 0.1, end: 0, curve: Curves.easeOutQuad)),
+        ],
       ),
     );
   }

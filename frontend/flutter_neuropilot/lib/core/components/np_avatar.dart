@@ -33,7 +33,27 @@ class NpAvatar extends StatelessWidget {
     final bg = Theme.of(context).colorScheme.primary.withValues(alpha: 0.15);
     final fg = Theme.of(context).colorScheme.onSurface;
     final radius = BorderRadius.circular(size / 2);
-    final child = imageUrl != null
+    
+    // Check if image URL is valid (not null and not empty)
+    final hasImage = imageUrl != null && imageUrl!.isNotEmpty;
+
+    // Fallback widget showing initials
+    final fallback = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: radius,
+      ),
+      alignment: Alignment.center,
+      child: Text(_initials(name),
+          style: TextStyle(
+              fontSize: size * 0.4,
+              color: fg,
+              fontWeight: FontWeight.w600)),
+    );
+
+    final child = hasImage
         ? ClipRRect(
             borderRadius: radius,
             child: Image.network(
@@ -41,38 +61,34 @@ class NpAvatar extends StatelessWidget {
               width: size,
               height: size,
               fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
                 return Container(
                   width: size,
                   height: size,
-                  decoration: BoxDecoration(
-                    color: bg,
-                    borderRadius: radius,
-                  ),
+                  color: bg,
                   alignment: Alignment.center,
-                  child: Text(_initials(name),
-                      style: TextStyle(
-                          fontSize: size * 0.4,
-                          color: fg,
-                          fontWeight: FontWeight.w600)),
+                  child: SizedBox(
+                    width: size * 0.5,
+                    height: size * 0.5,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes!
+                          : null,
+                    ),
+                  ),
                 );
               },
+              errorBuilder: (context, error, stackTrace) {
+                // On error, show fallback
+                return fallback;
+              },
             ))
-        : Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: radius,
-            ),
-            alignment: Alignment.center,
-            child: Text(_initials(name),
-                style: TextStyle(
-                    fontSize: size * 0.4,
-                    color: fg,
-                    fontWeight: FontWeight.w600)),
-          );
+        : fallback;
+        
     return Semantics(
-        label: name ?? 'Avatar', image: imageUrl != null, child: child);
+        label: name ?? 'Avatar', image: hasImage, child: child);
   }
 }

@@ -82,6 +82,32 @@ def record_agent_latency(ms: int) -> None:
     })
 
 
+def record_model_usage(
+    model_name: str,
+    latency_ms: int,
+    tokens_input: int = 0,
+    tokens_output: int = 0,
+    status: str = "success",
+    error: str = None
+) -> None:
+    """Log model usage metrics."""
+    uid = os.getenv("USER") or "terminal_user"
+    dk = _date_key()
+    data = {
+        "kind": "model_usage",
+        "model": model_name,
+        "latency_ms": latency_ms,
+        "tokens_input": tokens_input,
+        "tokens_output": tokens_output,
+        "status": status,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    if error:
+        data["error"] = error
+        
+    _metrics_doc(uid, dk).collection("events").add(data)
+
+
 def compute_daily_overview(user_id: str, date_key: str) -> Dict[str, Any]:
     doc = _metrics_doc(user_id, date_key)
     evs = doc.collection("events").stream()
@@ -110,3 +136,30 @@ def compute_daily_overview(user_id: str, date_key: str) -> Dict[str, Any]:
         "avg_decision_resolution_seconds": avg_decision_time,
         "hyperfocus_interrupts": interrupts,
     }
+
+
+def record_api_access(endpoint: str, status: str, latency_ms: int, error: str | None = None) -> None:
+    """
+    Record an API access event for monitoring.
+
+    Args:
+        endpoint (str): Endpoint path (e.g., "/mcp/calendar/v1/status").
+        status (str): "success" or "error".
+        latency_ms (int): Latency in milliseconds.
+        error (str | None): Optional error message.
+
+    Side Effects:
+        Writes an event document under the user's metrics collection in Firestore.
+    """
+    uid = os.getenv("USER") or "terminal_user"
+    dk = _date_key()
+    data = {
+        "kind": "api_access",
+        "endpoint": endpoint,
+        "status": status,
+        "latency_ms": latency_ms,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    if error:
+        data["error"] = error
+    _metrics_doc(uid, dk).collection("events").add(data)

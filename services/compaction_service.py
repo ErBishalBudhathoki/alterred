@@ -30,6 +30,17 @@ from services.firebase_client import get_client
 
 
 def _genai_client():
+    """
+    Initializes and returns the Gemini GenAI client.
+    """
+    # Prefer Vertex AI if configured
+    project_id = os.getenv("VERTEX_AI_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
+    
+    if project_id:
+        return Client(vertexai=True, project=project_id, location=location)
+        
+    # Fallback to API Key
     return Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
 

@@ -227,3 +227,23 @@ class UserSettings:
             return data.get(f"{provider}_connected", False)
         except Exception:
             return False
+
+    def save_profile_email(self, email: str) -> Dict[str, Any]:
+        try:
+            self.db.collection("users").document(self.user_id).collection("settings").document("profile").set({
+                "email": email,
+                "updated_at": firestore.SERVER_TIMESTAMP
+            }, merge=True)
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def get_profile_email(self) -> Optional[str]:
+        try:
+            doc = self.db.collection("users").document(self.user_id).collection("settings").document("profile").get()
+            if not doc.exists:
+                return None
+            data = doc.to_dict()
+            return data.get("email")
+        except Exception:
+            return None

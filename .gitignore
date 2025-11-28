@@ -6,6 +6,9 @@
 # Credentials
 credentials/
 
+# Firebase CLI cache
+.firebase/
+
 # Dependencies
 node_modules/
 /build/

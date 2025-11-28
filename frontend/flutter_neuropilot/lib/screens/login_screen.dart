@@ -10,6 +10,7 @@ import '../core/components/np_snackbar.dart';
 import '../core/design_tokens.dart';
 import '../core/routes.dart';
 import '../state/auth_state.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 
 /// Screen for user authentication via email/password or Google Sign-In.
 ///
@@ -147,15 +148,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Welcome Back', style: Theme.of(context).textTheme.titleLarge),
+            Text('Welcome Back', style: Theme.of(context).textTheme.titleLarge)
+                .animate()
+                .fadeIn(duration: 400.ms)
+                .slideY(begin: 0.2, end: 0),
             const SizedBox(height: DesignTokens.spacingMd),
             NpTextField(
-                controller: _email,
-                label: 'Email Address',
-                keyboardType: TextInputType.emailAddress,
-                textInputAction: TextInputAction.next),
+                    controller: _email,
+                    label: 'Email Address',
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.next)
+                .animate()
+                .fadeIn(delay: 100.ms, duration: 400.ms)
+                .slideY(begin: 0.2, end: 0),
             const SizedBox(height: DesignTokens.spacingSm),
-            NpPasswordField(controller: _password, label: 'Password'),
+            NpPasswordField(controller: _password, label: 'Password')
+                .animate()
+                .fadeIn(delay: 200.ms, duration: 400.ms)
+                .slideY(begin: 0.2, end: 0),
             const SizedBox(height: DesignTokens.spacingSm),
             Row(children: [
               NpCheckbox(
@@ -167,20 +177,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
               TextButton(
                   onPressed: _loading ? null : _reset,
                   child: const Text('Forgot password?')),
-            ]),
+            ])
+                .animate()
+                .fadeIn(delay: 300.ms, duration: 400.ms)
+                .slideY(begin: 0.2, end: 0),
             const SizedBox(height: DesignTokens.spacingMd),
             NpButton(
-                label: 'Sign In',
-                onPressed: _loading ? null : _submit,
-                icon: Icons.login,
-                loading: _loading),
+                    label: 'Sign In',
+                    onPressed: _loading ? null : _submit,
+                    icon: Icons.login,
+                    loading: _loading)
+                .animate()
+                .fadeIn(delay: 400.ms, duration: 400.ms)
+                .slideY(begin: 0.2, end: 0),
             const SizedBox(height: DesignTokens.spacingSm),
             NpButton(
-                label: 'Continue with Google',
-                onPressed: _loading ? null : _google,
-                icon: Icons.account_circle,
-                type: NpButtonType.secondary,
-                loading: _loading),
+                    label: 'Continue with Google',
+                    onPressed: _loading ? null : _google,
+                    icon: Icons.account_circle,
+                    type: NpButtonType.secondary,
+                    loading: _loading)
+                .animate()
+                .fadeIn(delay: 500.ms, duration: 400.ms)
+                .slideY(begin: 0.2, end: 0),
             const SizedBox(height: DesignTokens.spacingLg),
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               const Text("Don't have an account?"),
@@ -188,7 +207,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   onPressed: () =>
                       Navigator.of(context).pushReplacementNamed(Routes.signup),
                   child: const Text('Sign Up')),
-            ]),
+            ])
+                .animate()
+                .fadeIn(delay: 600.ms, duration: 400.ms)
+                .slideY(begin: 0.2, end: 0),
           ],
         ),
       ),

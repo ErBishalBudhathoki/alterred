@@ -6,7 +6,7 @@ import '../core/chat_message.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, VoidCallback;
 import 'package:firebase_core/firebase_core.dart';
 
 /// Represents a single chat session with metadata.
@@ -88,6 +88,9 @@ class ChatStore {
   final Map<String, StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>
       _messageSubs = {};
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sessionsSub;
+
+  // Callbacks for real-time updates
+  VoidCallback? onSessionsUpdated;
 
   FirebaseFirestore get _fs => FirebaseFirestore.instance;
   String? get _uid => FirebaseAuth.instance.currentUser?.uid;
@@ -390,6 +393,7 @@ class ChatStore {
           sessions.sort((a, b) => b.lastActivity.compareTo(a.lastActivity));
           await prefs.setString('chat_sessions',
               jsonEncode(sessions.map((e) => e.toMap()).toList()));
+          onSessionsUpdated?.call();
         }, onError: (e) async {
           debugPrint(
               'Firestore sessions listener error (uid=${_uid ?? 'null'} project=${_projectId ?? 'null'}): $e');

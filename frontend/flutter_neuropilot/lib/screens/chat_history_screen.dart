@@ -50,6 +50,9 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       try {
         final store = ref.read(chatStoreProvider);
+        store.onSessionsUpdated = () {
+          if (mounted) ref.invalidate(chatSessionsProvider);
+        };
         await store.attachSessionsListener();
       } catch (_) {}
     });
@@ -104,11 +107,21 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
           ),
           // Session List
           Expanded(
-            child: sessionsAsync.when(
-              data: (sessions) {
-                if (sessions.isEmpty) {
+            child: Builder(
+              builder: (context) {
+                final sessions = sessionsAsync.valueOrNull;
+                final isLoading = sessionsAsync.isLoading;
+
+                if (sessions == null && isLoading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (sessions == null && sessionsAsync.hasError) {
+                  return Center(child: Text('${sessionsAsync.error}'));
+                }
+                if (sessions == null || sessions.isEmpty) {
                   return Center(child: Text(l.noChatsLabel));
                 }
+
                 return RefreshIndicator(
                   onRefresh: () async {
                     ref.read(chatSessionsPageProvider.notifier).state = 0;
@@ -116,8 +129,16 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
                   },
                   child: ListView.builder(
                     controller: _scrollCtl,
-                    itemCount: sessions.length,
+                    // Add extra item for loader if loading more
+                    itemCount: sessions.length + (isLoading ? 1 : 0),
                     itemBuilder: (ctx, i) {
+                      if (i == sessions.length) {
+                        return const Padding(
+                          padding: EdgeInsets.all(16.0),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+
                       final s = sessions[i];
                       final isActive = s.id == activeId;
                       return Dismissible(
@@ -228,8 +249,6 @@ class _ChatHistoryScreenState extends ConsumerState<ChatHistoryScreen> {
                   ),
                 );
               },
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('$e')),
             ),
           ),
         ],

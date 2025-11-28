@@ -60,6 +60,11 @@ class ApiClient {
     return _decodeEnsureOk(r);
   }
 
+  Future<Map<String, dynamic>> googleUserinfo() async {
+    final r = await _send(_client.get(Uri.parse('$baseUrl/auth/google/userinfo')));
+    return _decodeEnsureOk(r);
+  }
+
   /// Fetches session history from yesterday.
   Future<Map<String, dynamic>> sessionsYesterday() async {
     final r =

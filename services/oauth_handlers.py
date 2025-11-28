@@ -23,8 +23,11 @@ Behavioral Specifications:
 """
 
 import os
+# Relax scope validation as Google often returns extra scopes (email, openid, etc.)
+os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
+
 from typing import Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -33,7 +36,12 @@ from google.oauth2.credentials import Credentials
 class GoogleOAuthHandler:
     """Handle Google OAuth 2.0 flow for calendar access."""
     
-    SCOPES = ['https://www.googleapis.com/auth/calendar']
+    SCOPES = [
+        'https://www.googleapis.com/auth/calendar',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'openid'
+    ]
     
     def __init__(self):
         self.client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
@@ -82,22 +90,31 @@ class GoogleOAuthHandler:
         
         return authorization_url
     
-    def exchange_code_for_tokens(self, authorization_code: str) -> Dict[str, Any]:
+    def exchange_code_for_tokens(self, authorization_code: str, redirect_uri: Optional[str] = None) -> Dict[str, Any]:
         """
         Exchange authorization code for access and refresh tokens.
         
         Args:
             authorization_code: Code from OAuth callback
+            redirect_uri: Optional redirect URI (must match the one used in authorization)
         
         Returns:
-            Dict with tokens and expiry info
+            Dict containing:
+                - ok: Success status
+                - access_token: OAuth access token
+                - refresh_token: OAuth refresh token  
+                - expires_at: ISO format expiry timestamp
+                - scopes: List of granted scopes
         """
         try:
+            # Use custom redirect URI if provided, otherwise use default
+            actual_redirect_uri = redirect_uri or self.redirect_uri
+            
             client_config = {
                 "web": {
                     "client_id": self.client_id,
                     "client_secret": self.client_secret,
-                    "redirect_uris": [self.redirect_uri],
+                    "redirect_uris": [actual_redirect_uri],
                     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                     "token_uri": "https://oauth2.googleapis.com/token"
                 }
@@ -106,21 +123,22 @@ class GoogleOAuthHandler:
             flow = Flow.from_client_config(
                 client_config,
                 scopes=self.SCOPES,
-                redirect_uri=self.redirect_uri
+                redirect_uri=actual_redirect_uri
             )
             
             flow.fetch_token(code=authorization_code)
             
             credentials = flow.credentials
             
-            # Use credential expiry timestamp as ISO string
-            expires_at = credentials.expiry.isoformat() if getattr(credentials, "expiry", None) else (datetime.utcnow() + timedelta(hours=1)).isoformat()
+            # Calculate expiry timestamp
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=credentials.expiry.timestamp() - datetime.now(timezone.utc).timestamp() if credentials.expiry else 3600)
+            
             return {
                 "ok": True,
                 "access_token": credentials.token,
                 "refresh_token": credentials.refresh_token,
-                "expires_at": expires_at,
-                "scopes": credentials.scopes
+                "expires_at": expires_at.isoformat(),
+                "scopes": credentials.scopes or self.SCOPES
             }
         except Exception as e:
             return {
@@ -153,7 +171,7 @@ class GoogleOAuthHandler:
             credentials.refresh(request)
             
             # Calculate new expiry
-            expires_at = datetime.utcnow() + timedelta(seconds=3600)  # Usually 1 hour
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=3600)  # Usually 1 hour
             
             return {
                 "ok": True,

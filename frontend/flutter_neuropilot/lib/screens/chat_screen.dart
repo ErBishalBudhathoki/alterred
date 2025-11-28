@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -16,7 +17,9 @@ import '../core/components/np_snackbar.dart';
 import '../core/components/np_progress.dart';
 import '../core/components/np_bottom_sheet.dart';
 import '../core/components/np_badge.dart';
-import '../core/components/np_liquid_ball.dart';
+import '../core/components/np_badge.dart';
+import '../core/components/pulse_indicator.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../services/api_client.dart';
 import '../state/session_state.dart';
 import '../state/chat_store.dart';
@@ -76,7 +79,9 @@ class _TimerItem {
   int remainingSeconds;
   bool paused = false;
   bool completed = false;
+
   DateTime? completedAt;
+  int lastProgressState = 0; // 0: >50%, 1: <=50%, 2: <=20%
 }
 
 /// Actions inferred from a timer command.
@@ -108,6 +113,7 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final List<ChatMessage> _messages = [];
+  final ScrollController _scrollController = ScrollController();
   final TextEditingController _input = TextEditingController();
   bool _loading = false;
   bool _voiceMode = false;
@@ -167,6 +173,107 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   int _pulseSpeedMs = 900;
   Color? _pulseBaseColor;
 
+  // Pagination
+  int _currentPage = 0;
+  bool _isLoadingMore = false;
+  bool _hasMoreMessages = true;
+
+  @override
+  void dispose() {
+    // Stop animations and timers first
+    _pulseCtl.dispose();
+    _timerTicker?.cancel();
+    _testRebuilder?.cancel();
+    _shortTimerTicker?.dispose();
+    _heartbeat?.cancel();
+    _modeBannerTimer?.cancel();
+    _sessionTimer?.cancel();
+    _inactivityTimer?.cancel();
+    _voiceRestartTimer?.cancel();
+
+    // Cancel subscriptions
+    _partialSub?.cancel();
+    _levelSub?.cancel();
+    _speakingSub?.cancel();
+
+    // Dispose controllers and listeners
+    _scrollController.removeListener(_scrollListener);
+    _scrollController.dispose();
+    _input.dispose();
+
+    if (!kIsWeb) {
+      WidgetsBinding.instance.removeObserver(this);
+    }
+    super.dispose();
+  }
+
+  /// Loads older messages when scrolling up.
+  void _scrollListener() {
+    if (_scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 100 &&
+        !_isLoadingMore &&
+        _hasMoreMessages) {
+      _loadMoreMessages();
+    }
+  }
+
+  Future<void> _loadMoreMessages() async {
+    if (_isLoadingMore) return;
+    setState(() => _isLoadingMore = true);
+    try {
+      final currentId = ref.read(chatSessionIdProvider);
+      // If session ID isn't in provider, try to get it from store logic if needed,
+      // but typically it should be set.
+      if (currentId == null) {
+        setState(() => _isLoadingMore = false);
+        return;
+      }
+
+      final store = ref.read(chatStoreProvider);
+      final next = _currentPage + 1;
+      final msgs = await store.getMessages(currentId, page: next, pageSize: 50);
+      if (!mounted) return;
+
+      if (msgs.isEmpty) {
+        setState(() {
+          _hasMoreMessages = false;
+          _isLoadingMore = false;
+        });
+        return;
+      }
+
+      setState(() {
+        _currentPage = next;
+        // Prepend older messages
+        _messages.insertAll(0, msgs);
+        _isLoadingMore = false;
+        _hasMoreMessages = msgs.length >= 50;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _isLoadingMore = false);
+    }
+  }
+
+  /// Scrolls the chat to the bottom to show the latest message.
+  ///
+  /// Uses SchedulerBinding to ensure scrolling happens after the frame is built.
+  void _scrollToBottom() {
+    // With reverse: true, the "bottom" is scroll offset 0.
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+
+      try {
+        _scrollController.animateTo(
+          0.0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      } catch (_) {
+        // Silently fail - scroll controller might not be ready yet
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final l = AppLocalizations.of(context)!;
@@ -198,6 +305,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   ref.invalidate(chatSessionsProvider);
                   setState(() {
                     _messages.clear();
+                    _currentPage = 0;
+                    _hasMoreMessages = true;
                   });
                   break;
                 case 'chats':
@@ -416,11 +525,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           // End timers list
           Expanded(
             child: ListView.builder(
+              controller: _scrollController,
+              reverse: true,
               padding: EdgeInsets.symmetric(
                   horizontal: hp, vertical: DesignTokens.spacingLg),
               itemCount: _messages.length,
               itemBuilder: (ctx, i) {
-                final m = _messages[i];
+                // Since we are using reverse: true, the list is visually reversed.
+                // We want index 0 to be the bottom-most item (latest message).
+                // _messages is stored [oldest, ..., newest].
+                // So we map visual index i to _messages.length - 1 - i.
+                final m = _messages[_messages.length - 1 - i];
                 final isUser = m.role == 'user';
                 return Padding(
                   padding:
@@ -503,7 +618,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                       ],
                     ],
                   ),
-                );
+                ).animate().fadeIn(duration: 300.ms).slideY(
+                    begin: 0.2,
+                    end: 0,
+                    duration: 300.ms,
+                    curve: Curves.easeOut);
               },
             ),
           ),
@@ -627,19 +746,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                         child: SizedBox(
                           width: 56,
                           height: 56,
-                          child: NpLiquidBall(
+                          child: PulseIndicator(
                             mode: _listening
-                                ? NpLiquidMode.listening
+                                ? PulseMode.listening
                                 : (_speaking
-                                    ? NpLiquidMode.speaking
+                                    ? PulseMode.speaking
                                     : (_loading || _engaged.isNotEmpty
-                                        ? NpLiquidMode.processing
-                                        : NpLiquidMode.idle)),
+                                        ? PulseMode.processing
+                                        : PulseMode.idle)),
                             amplitude: _listening
-                                ? _soundLevel
-                                : (_speaking ? 0.4 : 0.1),
-                            frequency: _listening ? 3.0 : 2.0,
-                            size: 40,
+                                ? (_soundLevel > 1.0
+                                    ? 1.0
+                                    : _soundLevel) // Normalize if needed
+                                : (_speaking ? 0.4 : 0.0),
+                            size: 56,
                           ),
                         ),
                       ),
@@ -1025,9 +1145,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     setState(() {
       _timers.add(item);
       _activeTimerId = timerId;
+      _showTimersSection = true;
     });
 
-    _appendAssistant('Timer created.');
+    _appendAssistant('Timer created for ${_formatExactDuration(total)}.');
 
     if (total <= 1) {
       _testRebuilder?.cancel();
@@ -1067,12 +1188,36 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         final removeIds = <String>[];
         for (final t in _timers) {
           if (!t.paused && !t.completed) {
-            final rem = t.target.difference(nowTick).inSeconds;
-            t.remainingSeconds = rem < 0 ? 0 : rem;
+            final now = _now();
+            final rem = t.target.difference(now).inMilliseconds / 1000;
+            t.remainingSeconds = rem.ceil();
+
+            // Audio Cues Logic
+            if (t.totalSeconds > 10) {
+              final progress =
+                  (t.remainingSeconds / t.totalSeconds).clamp(0.0, 1.0);
+              int newState = 0;
+              if (progress <= 0.2) {
+                newState = 2;
+              } else if (progress <= 0.5) {
+                newState = 1;
+              }
+
+              if (newState > t.lastProgressState) {
+                if (newState == 1) {
+                  _tts.speak("Halfway point.");
+                } else if (newState == 2) {
+                  _tts.speak("Final stretch.");
+                }
+                t.lastProgressState = newState;
+              }
+            }
+
             if (t.remainingSeconds <= 0) {
               t.completed = true;
               t.completedAt = DateTime.now();
-              _appendAssistant('Timer completed.');
+              _appendAssistant(
+                  'Timer completed: ${_formatExactDuration(t.totalSeconds)}.');
               removeIds.add(t.id);
             }
           }
@@ -1109,6 +1254,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       _messages.add(ChatMessage(role: 'user', content: text));
       _loading = true;
     });
+    _scrollToBottom();
     try {
       final store = ref.read(chatStoreProvider);
       final currentId = ref.read(chatSessionIdProvider);
@@ -1207,21 +1353,52 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       }
 
       if (reply.isNotEmpty || toolsList.isNotEmpty) {
-        if (toolsList.isNotEmpty) {
-          // Filter out internal tool data from display if it's just the mode switch
-          final displayTools = toolsList
-              .where((t) => !(t is Map &&
-                  (t.containsKey('ui_mode') || t['mode'] == 'stop')))
-              .toList();
-          if (displayTools.isNotEmpty || reply.isNotEmpty) {
-            final parts = <String>[
-              if (reply.isNotEmpty) reply,
-              if (displayTools.isNotEmpty) 'Tools: $displayTools',
-            ];
-            _appendAssistant(parts.join('\n'));
+        final askEmail = text.toLowerCase().contains('email');
+        final parts = <String>[];
+        if (reply.isNotEmpty) parts.add(reply);
+        if (askEmail) {
+          try {
+            final ui = await api.googleUserinfo();
+            if (ui['ok'] == true) {
+              final em = ui['email'] as String?;
+              if (em != null && em.isNotEmpty) {
+                parts.add('Your connected Google account: $em');
+              }
+            }
+          } catch (_) {}
+        }
+        final displayTools = toolsList
+            .where((t) => !(t is Map &&
+                (t.containsKey('ui_mode') || t['mode'] == 'stop')))
+            .toList();
+        if (displayTools.isNotEmpty) {
+          parts.add('Tools: $displayTools');
+        }
+        if (parts.isEmpty) {
+          final s = text.toLowerCase();
+          if (s.contains('appointment') ||
+              s.contains('calendar') ||
+              s.contains('event') ||
+              s.contains('today')) {
+            try {
+              final r = await api.calendarEventsToday();
+              final events = (r['result']?['events'] as List<dynamic>? ?? []);
+              if (events.isEmpty) {
+                parts.add('No events found for today.');
+              } else {
+                final lines = events
+                    .map((e) =>
+                        '- ${e['summary'] ?? 'Untitled'} (${e['start'] ?? ''} - ${e['end'] ?? ''})')
+                    .join('\n');
+                parts.add('Today\'s events:\n$lines');
+              }
+            } catch (_) {}
           }
+        }
+        if (parts.isEmpty) {
+          _appendAssistant('');
         } else {
-          _appendAssistant(reply);
+          _appendAssistant(parts.join('\n'));
         }
         return;
       }
@@ -1377,6 +1554,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     setState(() {
       _messages.add(ChatMessage(role: 'assistant', content: content));
     });
+    _scrollToBottom();
     try {
       final store = ref.read(chatStoreProvider);
       final currentId = ref.read(chatSessionIdProvider);
@@ -1876,6 +2054,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_scrollListener);
 
     // Observe app lifecycle for Just-in-Time Prompts on mobile
     if (!kIsWeb) {
@@ -1889,10 +2068,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
     _pulseCtl = AnimationController(
         vsync: this, duration: Duration(milliseconds: _pulseSpeedMs));
-    _pulseCtl.addListener(() {
-      if (!mounted) return;
-      setState(() {});
-    });
+    // Removed redundant setState listener as ScaleTransition handles the animation updates
+
     if (!_isTestEnv) {
       _pulseCtl.repeat(reverse: true);
     }
@@ -1934,10 +2111,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         await store.attachSessionsListener();
         await store.attachMessagesListener(sid);
         final pageMsgs = await store.getMessages(sid, page: 0, pageSize: 50);
-        if (mounted && pageMsgs.isNotEmpty) {
+        if (mounted) {
           setState(() {
-            _messages.addAll(pageMsgs);
+            if (pageMsgs.isNotEmpty) {
+              _messages.addAll(pageMsgs);
+            }
+            _hasMoreMessages = pageMsgs.length >= 50;
           });
+          if (pageMsgs.isNotEmpty) _scrollToBottom();
         }
         await store.markRead(sid);
       } catch (_) {}
@@ -1952,6 +2133,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
 
   Future<void> _loadPulsePrefs() async {
     final p = await SharedPreferences.getInstance();
+    if (!mounted) return;
     final speed = p.getInt('pulse_speed_ms');
     final base = p.getInt('pulse_base_color');
     setState(() {
@@ -2012,37 +2194,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     }
   }
 
-  @override
-  void dispose() {
-    if (!kIsWeb) {
-      WidgetsBinding.instance.removeObserver(this);
-    }
-    _heartbeat?.cancel();
-    _timerTicker?.cancel();
-    _testRebuilder?.cancel();
-    _shortTimerTicker?.dispose();
-    _pulseCtl.dispose();
-    _partialSub?.cancel();
-    _levelSub?.cancel();
-    _speakingSub?.cancel();
-    _sessionTimer?.cancel();
-    _inactivityTimer?.cancel();
-    _modeBannerTimer?.cancel();
-    super.dispose();
-  }
-
   DateTime _now() {
-    final tsMs = SchedulerBinding.instance.currentFrameTimeStamp.inMilliseconds;
-    return DateTime.fromMillisecondsSinceEpoch(_epochBaseMs + tsMs);
+    return DateTime.now();
   }
 
   Widget _timerCard(BuildContext context, _TimerItem t) {
     final active = _activeTimerId == t.id && !t.paused && !t.completed;
     final cs = Theme.of(context).colorScheme;
-    final bg = cs.surface;
-    final borderColor =
-        t.completed ? cs.secondary : (active ? cs.primary : cs.outline);
-    final fg = cs.onSurface;
     final now = _now();
     final remLive = (t.paused || t.completed)
         ? t.remainingSeconds
@@ -2050,6 +2208,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             final r = (t.target.difference(now).inMilliseconds / 1000).ceil();
             return r < 0 ? 0 : (r > t.totalSeconds ? t.totalSeconds : r);
           })();
+
     if (!t.paused && remLive <= 0) {
       scheduleMicrotask(() {
         if (!mounted) return;
@@ -2062,137 +2221,147 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       });
       return const SizedBox.shrink();
     }
+
+    final total = t.totalSeconds > 0 ? t.totalSeconds : 1;
+    final progress = (remLive / total).clamp(0.0, 1.0);
+
+    // Color Logic
+    Color timerColor;
+    if (progress > 0.5) {
+      timerColor = cs.primary;
+    } else if (progress > 0.2) {
+      timerColor = cs.tertiary;
+    } else {
+      timerColor = cs.error;
+    }
+    if (t.paused) timerColor = cs.outline;
+    if (t.completed) timerColor = cs.secondary;
+
     final originalHMS = _formatHMS(t.totalSeconds);
-    final remainingLabel = _formatHMSSigned(remLive);
-    final status = t.completed
-        ? 'Completed: $originalHMS.'
-        : t.paused
-            ? 'Paused: $remainingLabel of $originalHMS.'
-            : (() {
-                if (t.totalSeconds < 60) {
-                  final sec = t.remainingSeconds;
-                  final secStr =
-                      (sec < 0 ? -sec : sec).toString().padLeft(2, '0');
-                  return active
-                      ? 'Active — $secStr'
-                      : 'Counting down — $secStr';
-                }
-                return active
-                    ? 'Active — $remainingLabel of $originalHMS.'
-                    : 'Counting down — $remainingLabel of $originalHMS.';
-              })();
-    return GestureDetector(
-      onTap: () {
-        setState(() => _activeTimerId = t.id);
-      },
-      child: AnimatedOpacity(
-        opacity:
-            ((t.paused ? false : (remLive <= 0)) || t.completed) ? 0.0 : 1.0,
-        duration: const Duration(milliseconds: 500),
-        onEnd: () {
-          final id = t.id;
-          final shouldRemove = t.completed || (!t.paused && remLive <= 0);
-          if (shouldRemove) {
-            setState(() {
-              _timers.removeWhere((x) => x.id == id);
-              if (_activeTimerId == id) {
-                _activeTimerId = _timers.isNotEmpty ? _timers.last.id : null;
-              }
-            });
-          }
-        },
-        child: Container(
-          key: ValueKey('timer-card-${t.id}'),
-          width: double.infinity,
-          margin: const EdgeInsets.only(bottom: DesignTokens.spacingSm),
-          padding: const EdgeInsets.symmetric(
-              horizontal: DesignTokens.spacingLg,
-              vertical: DesignTokens.spacingSm),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
-            border: Border.all(color: borderColor, width: 2),
+    final remainingLabel = _formatHMS(remLive);
+
+    return Container(
+      key: ValueKey('timer-card-${t.id}'),
+      margin: const EdgeInsets.only(bottom: DesignTokens.spacingSm),
+      padding: const EdgeInsets.all(DesignTokens.spacingMd),
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(DesignTokens.radiusLg),
+        border: Border.all(color: timerColor.withValues(alpha: 0.3), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: timerColor.withValues(alpha: 0.05),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
           ),
-          child: Row(
+        ],
+      ),
+      child: Row(
+        children: [
+          // Circular Progress with Time
+          Stack(
+            alignment: Alignment.center,
             children: [
-              AnimatedBuilder(
-                animation:
-                    _isTestEnv ? const AlwaysStoppedAnimation(0.0) : _pulseCtl,
-                builder: (context, _) {
-                  final base = _pulseBaseColor ?? borderColor;
-                  if (t.completed) return const SizedBox.shrink();
-                  return Icon(Icons.timer, color: base);
-                },
-              ),
-              const SizedBox(width: DesignTokens.spacingSm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Timer set for $originalHMS.',
-                        style: TextStyle(color: fg)),
-                    const SizedBox(height: DesignTokens.spacingXs),
-                    Row(
-                      children: [
-                        Expanded(
-                            child: Text(status, style: TextStyle(color: fg))),
-                        if (active)
-                          const Padding(
-                            padding: EdgeInsets.only(left: 8.0),
-                            child: NpChip(label: 'Active', selected: true),
-                          ),
-                      ],
-                    ),
-                  ],
+              SizedBox(
+                width: 60,
+                height: 60,
+                child: CircularProgressIndicator(
+                  value: progress,
+                  backgroundColor: cs.surfaceContainerHighest,
+                  color: timerColor,
+                  strokeWidth: 6,
+                  strokeCap: StrokeCap.round,
                 ),
               ),
-              const SizedBox(width: DesignTokens.spacingSm),
-              if (!t.completed)
-                Row(
-                  children: [
-                    NpButton(
-                      label: t.paused ? 'Resume' : 'Pause',
-                      icon: t.paused ? Icons.play_arrow : Icons.pause,
-                      type: NpButtonType.secondary,
-                      onPressed: () {
-                        setState(() {
-                          if (t.paused) {
-                            t.paused = false;
-                            _activeTimerId = t.id;
-                            t.completed = false;
-                            t.target = _now()
-                                .add(Duration(seconds: t.remainingSeconds));
-                            _appendAssistant(
-                                'Timer resumed. Counting down from ${_formatExactDuration(t.remainingSeconds)}.');
-                          } else {
-                            t.paused = true;
-                            _appendAssistant(
-                                'Timer paused with ${_formatExactDuration(t.remainingSeconds)} remaining.');
-                          }
-                        });
-                      },
-                    ),
-                    const SizedBox(width: DesignTokens.spacingXs),
-                    NpButton(
-                      label: 'Cancel',
-                      icon: Icons.cancel,
-                      type: NpButtonType.secondary,
-                      onPressed: () {
-                        setState(() {
-                          _timers.removeWhere((x) => x.id == t.id);
-                          if (_activeTimerId == t.id) {
-                            _activeTimerId =
-                                _timers.isNotEmpty ? _timers.last.id : null;
-                          }
-                        });
-                        _appendAssistant('Timer cancelled.');
-                      },
-                    ),
-                  ],
-                ),
+              if (t.paused)
+                Icon(Icons.pause, color: timerColor)
+              else if (t.completed)
+                Icon(Icons.check, color: timerColor)
+              else
+                Icon(Icons.timer,
+                    color: timerColor.withValues(alpha: 0.8), size: 24),
             ],
           ),
-        ),
+          const SizedBox(width: DesignTokens.spacingMd),
+          // Text Details
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  t.completed
+                      ? 'Completed'
+                      : (t.paused ? 'Paused' : 'Focusing...'),
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: timerColor,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.0,
+                      ),
+                ),
+                Text(
+                  remainingLabel,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: [const FontFeature.tabularFigures()],
+                  ),
+                ),
+                Text(
+                  'of $originalHMS',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+          ),
+          // Controls
+          if (!t.completed)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton.filledTonal(
+                  icon: Icon(t.paused ? Icons.play_arrow : Icons.pause),
+                  onPressed: () {
+                    setState(() {
+                      if (t.paused) {
+                        t.paused = false;
+                        _activeTimerId = t.id;
+                        t.completed = false;
+                        t.target =
+                            _now().add(Duration(seconds: t.remainingSeconds));
+                        _appendAssistant(
+                            'Timer resumed. Counting down from ${_formatExactDuration(t.remainingSeconds)}.');
+                      } else {
+                        t.paused = true;
+                        _appendAssistant(
+                            'Timer paused with ${_formatExactDuration(t.remainingSeconds)} remaining.');
+                      }
+                    });
+                  },
+                  tooltip: t.paused ? 'Resume' : 'Pause',
+                  style: IconButton.styleFrom(
+                    backgroundColor: timerColor.withValues(alpha: 0.1),
+                    foregroundColor: timerColor,
+                  ),
+                ),
+                const SizedBox(width: DesignTokens.spacingXs),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () {
+                    setState(() {
+                      _timers.removeWhere((x) => x.id == t.id);
+                      if (_activeTimerId == t.id) {
+                        _activeTimerId =
+                            _timers.isNotEmpty ? _timers.last.id : null;
+                      }
+                    });
+                    _appendAssistant('Timer cancelled.');
+                  },
+                  tooltip: 'Cancel',
+                ),
+              ],
+            ),
+        ],
       ),
     );
   }

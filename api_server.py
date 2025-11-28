@@ -42,10 +42,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, Body, Request
+from fastapi import FastAPI, Body, Request, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from services.history_service import yesterday_range, get_sessions_by_date, get_events_for_session
 from services.auth import get_user_id_from_request
@@ -61,8 +61,22 @@ from agents.decision_support_agent import paralysis_protocol
 from neuropilot_starter_code import match_task_to_energy
 from services.external_brain_store import store_voice_task, get_context, list_voice_tasks
 from services.a2a_service import connect_partner, post_update
-from services.metrics_service import compute_daily_overview
-from services.calendar_mcp import list_events_today, check_mcp_ready
+from services.metrics_service import compute_daily_overview, record_api_access
+from services.calendar_mcp import (
+    list_events_today,
+    check_mcp_ready,
+    account_status,
+    account_clear,
+    account_migrate,
+    list_events_from_calendars,
+    batch_create_events,
+    create_recurring_event,
+    update_recurring_event,
+    find_availability,
+    search_events,
+    analyze_calendar,
+    extract_event_from_image,
+)
 from services.oauth_handlers import GoogleOAuthHandler
 from services.user_settings import UserSettings
 from adk_app import adk_respond
@@ -79,6 +93,8 @@ except ImportError:
     _SEARCH_TOOL = None
 
 from services.chat_commands import parse as parse_chat_command, execute as execute_chat_command, help as chat_help
+from routers.vertex_routes import router as vertex_router
+from routers.byok_routes import router as byok_router
 
 
 app = FastAPI(title="Altered API")
@@ -92,6 +108,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(vertex_router)
+app.include_router(byok_router)
 
 
 @app.middleware("http")
@@ -135,6 +154,49 @@ def _uid(user_id: str | None) -> str:
     return user_id or os.getenv("USER") or "terminal_user"
 
 
+# ===== MCP Calendar Guard & Rate Limiting =====
+_MCP_RATE_BUCKETS: dict[str, list[float]] = {}
+
+def _mcp_calendar_guard(request: Request) -> None:
+    """
+    Enforces access control and rate limiting for MCP Calendar endpoints.
+
+    Authentication:
+    - Requires header `X-Calendar-MCP-Token` matching env var `CALENDAR_MCP_TOKEN`.
+    - Optional client identifier header `X-Client: calendar-mcp`.
+
+    Rate Limiting:
+    - Default: 100 requests per IP per 15 minutes.
+    - Override via env vars `MCP_RATE_LIMIT_COUNT` and `MCP_RATE_LIMIT_WINDOW_SECONDS`.
+
+    Raises:
+    - HTTP 401 if authentication fails
+    - HTTP 429 if rate limit exceeded
+    """
+    token_header = request.headers.get("X-Calendar-MCP-Token")
+    expected = os.getenv("CALENDAR_MCP_TOKEN")
+    allow_query = os.getenv("ALLOW_MCP_TOKEN_QUERY", "").lower() == "true"
+    token_query = request.query_params.get("token") if allow_query else None
+    provided = token_header or token_query
+    if not expected or provided != expected:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail={"ok": False, "error": "unauthorized"})
+
+    # Rate limiting
+    import time
+    count = int(os.getenv("MCP_RATE_LIMIT_COUNT", "100"))
+    window = int(os.getenv("MCP_RATE_LIMIT_WINDOW_SECONDS", "900"))
+    ip = (request.client.host if request.client else "0.0.0.0")
+    now = time.time()
+    bucket = _MCP_RATE_BUCKETS.get(ip, [])
+    # prune
+    bucket = [t for t in bucket if now - t <= window]
+    if len(bucket) >= count:
+        _MCP_RATE_BUCKETS[ip] = bucket
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail={"ok": False, "error": "rate_limited"})
+    bucket.append(now)
+    _MCP_RATE_BUCKETS[ip] = bucket
+
+
 @app.get("/health")
 def health():
     """
@@ -146,7 +208,7 @@ def health():
     Returns:
         dict: A dictionary containing status "ok" and the current server time.
     """
-    return {"ok": True, "time": datetime.utcnow().isoformat()}
+    return {"ok": True, "time": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/sessions/yesterday")
@@ -428,7 +490,7 @@ def api_metrics_overview(request: Request, user_id: str | None = None):
         dict: Daily overview metrics.
     """
     uid = get_user_id_from_request(request) if request else _uid(user_id)
-    dk = datetime.utcnow().date().isoformat()
+    dk = datetime.now(timezone.utc).date().isoformat()
     return compute_daily_overview(uid, dk)
 
 
@@ -499,6 +561,350 @@ def api_calendar_events_today(request: Request):
     return list_events_today("primary", user_id=uid)
 
 
+# ===== MCP Calendar v1 Endpoints =====
+
+@app.get("/mcp/calendar/v1/status")
+def mcp_calendar_status(request: Request, user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    """
+    MCP Calendar Status (v1)
+
+    Authentication:
+    - Header `X-Calendar-MCP-Token: <secret>` required.
+
+    Rate Limiting:
+    - 100 requests/IP/15 minutes (configurable via env).
+
+    Usage:
+    - curl example:
+      curl -H "X-Calendar-MCP-Token: $CALENDAR_MCP_TOKEN" http://localhost:8000/mcp/calendar/v1/status
+    """
+    import time
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = account_status(uid)
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/status", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/status", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.get("/mcp/calendar/v1/credentials")
+def mcp_calendar_credentials(request: Request, account: str = "normal", user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    import time
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        from services.calendar_mcp import _get_user_credentials_file
+        path = _get_user_credentials_file(uid, account)
+        if not path:
+            ms = int((time.time() - t0) * 1000)
+            record_api_access("/mcp/calendar/v1/credentials", "error", ms, "no_credentials")
+            return JSONResponse(status_code=404, content={"ok": False, "error": "no_credentials"})
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/credentials", "success", ms)
+        return {"ok": True, "path": os.path.abspath(path), "filename": os.path.basename(path)}
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/credentials", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/clear")
+def mcp_calendar_clear(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    """
+    Clear MCP Calendar account tokens (v1)
+
+    Authentication:
+    - Header `X-Calendar-MCP-Token` required.
+
+    Body:
+    - { "account": "normal" | "test" }
+
+    Example:
+      curl -X POST -H "Content-Type: application/json" \
+           -H "X-Calendar-MCP-Token: $CALENDAR_MCP_TOKEN" \
+           -d '{"account":"test"}' http://localhost:8000/mcp/calendar/v1/clear
+    """
+    import time
+    t0 = time.time()
+    acct = (payload or {}).get("account", "normal")
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = account_clear(acct, uid)
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/clear", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/clear", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/migrate")
+def mcp_calendar_migrate(request: Request, user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    """
+    Migrate authorized-user credentials to stored tokens (v1)
+
+    Authentication:
+    - Header `X-Calendar-MCP-Token` required.
+
+    Example:
+      curl -X POST -H "X-Calendar-MCP-Token: $CALENDAR_MCP_TOKEN" http://localhost:8000/mcp/calendar/v1/migrate
+    """
+    import time
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = account_migrate(uid)
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/migrate", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/migrate", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/list")
+def mcp_calendar_list(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    """
+    List events across calendars within a time range (v1)
+
+    Auth: `X-Calendar-MCP-Token` header
+    Body: { "calendarIds": ["primary","work"], "timeMin": "...", "timeMax": "...", "account": "normal|test" }
+    Example:
+      curl -X POST -H "X-Calendar-MCP-Token: $CALENDAR_MCP_TOKEN" -H "Content-Type: application/json" \
+           -d '{"calendarIds":["work","personal"],"timeMin":"2025-12-01T00:00:00+05:30","timeMax":"2025-12-08T00:00:00+05:30"}' \
+           http://localhost:8000/mcp/calendar/v1/list
+    """
+    import time
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    cids = (payload or {}).get("calendarIds", ["primary"])
+    tmin = (payload or {}).get("timeMin")
+    tmax = (payload or {}).get("timeMax")
+    acct = (payload or {}).get("account", "normal")
+    try:
+        res = list_events_from_calendars(cids, tmin, tmax, uid, acct)
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/list", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/list", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/create/batch")
+def mcp_calendar_create_batch(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    """
+    Batch create events (v1)
+
+    Auth: `X-Calendar-MCP-Token`
+    Body: { "events": [ {"summary":"...","start":"...","end":"..."}, ... ], "calendarId": "primary", "account":"normal|test" }
+    """
+    import time
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    events = (payload or {}).get("events", [])
+    cal = (payload or {}).get("calendarId", "primary")
+    acct = (payload or {}).get("account", "normal")
+    try:
+        res = batch_create_events(events, cal, uid, acct)
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/create/batch", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/create/batch", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/create/recurring")
+def mcp_calendar_create_recurring(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    """
+    Create a recurring event with an RRULE (v1)
+
+    Auth: `X-Calendar-MCP-Token`
+    Body: { "summary":"...","start":"...","end":"...","recurrenceRule":"RRULE:FREQ=WEEKLY;BYDAY=MO" , "calendarId":"primary", "account":"normal|test" }
+    """
+    import time
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = create_recurring_event(
+            (payload or {}).get("summary"),
+            (payload or {}).get("start"),
+            (payload or {}).get("end"),
+            (payload or {}).get("recurrenceRule"),
+            (payload or {}).get("calendarId", "primary"),
+            (payload or {}).get("location"),
+            (payload or {}).get("description"),
+            uid,
+            (payload or {}).get("account", "normal"),
+        )
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/create/recurring", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/create/recurring", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/update/recurring")
+def mcp_calendar_update_recurring(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    """
+    Update a recurring event with scope (v1)
+
+    Auth: `X-Calendar-MCP-Token`
+    Body: { "calendarId":"primary","eventId":"...","scope":"THIS|THIS_AND_FUTURE|ALL","updates":{...}, "account":"normal|test" }
+    """
+    import time
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = update_recurring_event(
+            (payload or {}).get("calendarId", "primary"),
+            (payload or {}).get("eventId"),
+            (payload or {}).get("scope", "THIS"),
+            (payload or {}).get("updates", {}),
+            uid,
+            (payload or {}).get("account", "normal"),
+        )
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/update/recurring", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/update/recurring", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/availability")
+def mcp_calendar_availability(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    """
+    Find availability across calendars (v1)
+
+    Auth: `X-Calendar-MCP-Token`
+    Body: { "calendarIds": [...], "durationMinutes": 90, "timeMin":"...", "timeMax":"...", "preference":"afternoon" }
+    """
+    import time
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = find_availability(
+            (payload or {}).get("calendarIds", ["primary"]),
+            int((payload or {}).get("durationMinutes", 60)),
+            (payload or {}).get("timeMin"),
+            (payload or {}).get("timeMax"),
+            (payload or {}).get("preference"),
+            uid,
+            (payload or {}).get("account", "normal"),
+        )
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/availability", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/availability", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/search")
+def mcp_calendar_search(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    """
+    Advanced search across calendars (v1)
+
+    Auth: `X-Calendar-MCP-Token`
+    Body: { "calendarIds": [...], "timeMin":"...","timeMax":"...", "attendee":"john@example.com", "location":"hq", "status":"confirmed", "minDurationMinutes":60 }
+    """
+    import time
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = search_events(
+            (payload or {}).get("calendarIds", ["primary"]),
+            (payload or {}).get("timeMin"),
+            (payload or {}).get("timeMax"),
+            (payload or {}).get("attendee"),
+            (payload or {}).get("location"),
+            (payload or {}).get("status"),
+            (payload or {}).get("minDurationMinutes"),
+            uid,
+            (payload or {}).get("account", "normal"),
+        )
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/search", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/search", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/analyze")
+def mcp_calendar_analyze(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    """
+    Calendar analysis metrics (v1)
+
+    Auth: `X-Calendar-MCP-Token`
+    Body: { "calendarIds": [...], "timeMin":"...", "timeMax":"..." }
+    """
+    import time
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = analyze_calendar(
+            (payload or {}).get("calendarIds", ["primary"]),
+            (payload or {}).get("timeMin"),
+            (payload or {}).get("timeMax"),
+            uid,
+            (payload or {}).get("account", "normal"),
+        )
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/analyze", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/analyze", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/extract")
+def mcp_calendar_extract(request: Request, payload: Dict[str, Any] = Body(...), _: None = Depends(_mcp_calendar_guard)):
+    """
+    Extract event details from an image (v1)
+
+    Auth: `X-Calendar-MCP-Token`
+    Body: { "imageBase64":"...", "mimeType":"image/png" } OR { "imagePath":"/path/to.png" }
+    """
+    import base64, time
+    t0 = time.time()
+    img_b64 = (payload or {}).get("imageBase64")
+    mime = (payload or {}).get("mimeType", "image/png")
+    img_path = (payload or {}).get("imagePath")
+    try:
+        if img_b64:
+            data = base64.b64decode(img_b64)
+            res = extract_event_from_image(data, (payload or {}).get("userInstruction"))
+        elif img_path:
+            res = extract_event_from_image(img_path, (payload or {}).get("userInstruction"))
+        else:
+            return JSONResponse(status_code=400, content={"ok": False, "error": "missing_image"})
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/extract", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/extract", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
 # ===== OAuth Endpoints =====
 
 @app.get("/auth/google/calendar")
@@ -537,7 +943,22 @@ def api_oauth_calendar_callback(request: Request, code: str, state: str):
         uid = state
         
         oauth_handler = GoogleOAuthHandler()
-        token_result = oauth_handler.exchange_code_for_tokens(code)
+        
+        # If state is 'mcp_redirect', this came from MCP server via our redirect server
+        # Use the MCP redirect URI (localhost:3500) for token exchange
+        if state == "mcp_redirect":
+            token_result = oauth_handler.exchange_code_for_tokens(code, redirect_uri="http://localhost:3500/oauth2callback")
+            # For MCP flows, we don't have a user_id in state, so we'll need to get it another way
+            # For now, log a warning
+            import logging
+            logging.warning("MCP redirect callback received but no user_id in state. Tokens cannot be saved.")
+            return JSONResponse(status_code=400, content={
+                "ok": False, 
+                "error": "MCP redirect requires user_id in state. Please reconnect via Settings."
+            })
+        else:
+            # Normal flow from Settings UI
+            token_result = oauth_handler.exchange_code_for_tokens(code)
         
         if not token_result.get("ok"):
             return JSONResponse(status_code=400, content=token_result)
@@ -555,7 +976,22 @@ def api_oauth_calendar_callback(request: Request, code: str, state: str):
         if not store_result.get("ok"):
             return JSONResponse(status_code=500, content=store_result)
         
-        # Return success page or redirect to app
+        # Fetch and store user email
+        try:
+            import requests as _requests
+            resp = _requests.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {token_result['access_token']}"},
+                timeout=8,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                email = data.get("email")
+                if email:
+                    user_settings.save_profile_email(email)
+        except Exception:
+            pass
+
         return {"ok": True, "message": "Calendar connected successfully"}
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
@@ -587,17 +1023,125 @@ def api_oauth_calendar_revoke(request: Request):
 
 @app.get("/auth/google/calendar/status")
 def api_oauth_calendar_status(request: Request):
-    """Check if user has connected calendar."""
     uid = get_user_id_from_request(request) if request else _uid(None)
-    
+
     try:
         user_settings = UserSettings(uid)
-        connected = user_settings.is_oauth_connected("google_calendar")
-        
-        return {"ok": True, "connected": connected}
+        tokens = user_settings.get_oauth_tokens("google_calendar")
+        connected_flag = user_settings.is_oauth_connected("google_calendar")
+
+        has_tokens = bool(tokens)
+        expires_at = tokens["expires_at"] if tokens else None
+        scopes = tokens["scopes"] if tokens else []
+
+        # Don't call check_mcp_ready here - it launches the MCP server which triggers OAuth popup
+        # MCP ready status will be checked when actually using calendar features
+        mcp_ready = has_tokens  # Simplified - assume ready if tokens exist
+
+        return {
+            "ok": True,
+            "connected": bool(connected_flag and has_tokens),
+            "details": {
+                "has_tokens": has_tokens,
+                "expires_at": expires_at,
+                "scopes": scopes,
+                "mcp_ready": mcp_ready,
+            },
+        }
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
+
+@app.get("/auth/google/calendar/validate")
+def api_oauth_calendar_validate(request: Request):
+    uid = get_user_id_from_request(request) if request else _uid(None)
+
+    try:
+        user_settings = UserSettings(uid)
+        tokens = user_settings.get_oauth_tokens("google_calendar")
+        if not tokens:
+            return {"ok": True, "connected": False, "status": "reauth_required", "reason": "no_tokens"}
+
+        from services.oauth_handlers import GoogleOAuthHandler
+        oauth = GoogleOAuthHandler()
+
+        from datetime import datetime, timedelta
+        try:
+            exp = datetime.fromisoformat(tokens["expires_at"]) if tokens.get("expires_at") else datetime.now(timezone.utc)
+            if exp.tzinfo is None:
+                from datetime import timezone as _tz
+                exp = exp.replace(tzinfo=_tz.utc)
+        except Exception:
+            exp = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        needs_refresh = now >= exp or (exp - now) <= timedelta(minutes=5)
+
+        if needs_refresh:
+            r = oauth.refresh_access_token(tokens["refresh_token"]) if tokens.get("refresh_token") else {"ok": False}
+            if r.get("ok"):
+                user_settings.save_oauth_tokens(
+                    provider="google_calendar",
+                    access_token=r["access_token"],
+                    refresh_token=tokens["refresh_token"],
+                    expires_at=r["expires_at"],
+                    scopes=tokens.get("scopes", [])
+                )
+                return {"ok": True, "connected": True, "status": "ready", "refreshed": True}
+            else:
+                return {"ok": True, "connected": False, "status": "reauth_required", "reason": "refresh_failed"}
+
+        return {"ok": True, "connected": True, "status": "ready", "refreshed": False}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.get("/auth/google/userinfo")
+def api_google_userinfo(request: Request):
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    try:
+        user_settings = UserSettings(uid)
+        tokens = user_settings.get_oauth_tokens("google_calendar")
+        if not tokens:
+            return JSONResponse(status_code=401, content={"ok": False, "error": "not_connected"})
+
+        from datetime import datetime, timedelta
+        try:
+            exp = datetime.fromisoformat(tokens["expires_at"]) if tokens.get("expires_at") else datetime.now(timezone.utc)
+            if exp.tzinfo is None:
+                from datetime import timezone as _tz
+                exp = exp.replace(tzinfo=_tz.utc)
+        except Exception:
+            exp = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        access_token = tokens.get("access_token")
+        if now >= exp or (exp - now) <= timedelta(minutes=5):
+            from services.oauth_handlers import GoogleOAuthHandler
+            oauth = GoogleOAuthHandler()
+            r = oauth.refresh_access_token(tokens.get("refresh_token", ""))
+            if r.get("ok"):
+                user_settings.save_oauth_tokens(
+                    provider="google_calendar",
+                    access_token=r["access_token"],
+                    refresh_token=tokens.get("refresh_token", ""),
+                    expires_at=r["expires_at"],
+                    scopes=tokens.get("scopes", [])
+                )
+                access_token = r["access_token"]
+            else:
+                return JSONResponse(status_code=401, content={"ok": False, "error": "refresh_failed"})
+
+        import requests as _requests
+        resp = _requests.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=8,
+        )
+        if resp.status_code != 200:
+            return JSONResponse(status_code=resp.status_code, content={"ok": False, "error": "userinfo_error", "detail": resp.text})
+        data = resp.json()
+        return {"ok": True, "email": data.get("email"), "name": data.get("name"), "picture": data.get("picture")}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
 # ===== API Key Management Endpoints =====
 
@@ -647,6 +1191,84 @@ def api_delete_api_key(request: Request):
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
 
+# ===== Credit Management Endpoints =====
+
+@app.get("/credits/balance")
+def api_get_credit_balance(request: Request):
+    """Get user's current credit balance."""
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    
+    try:
+        from services.credit_service import get_credit_service
+        credit_service = get_credit_service()
+        return credit_service.get_balance(uid)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.get("/credits/history")
+def api_get_credit_history(request: Request, limit: int = 50):
+    """Get user's credit transaction history."""
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    
+    try:
+        from services.credit_service import get_credit_service
+        credit_service = get_credit_service()
+        return credit_service.get_transaction_history(uid, limit=limit)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+# Admin endpoints (TODO: add proper admin authentication)
+@app.post("/admin/credits/allocate")
+def api_admin_allocate_credits(request: Request, payload: Dict[str, Any] = Body(...)):
+    """Admin endpoint to allocate credits to a user."""
+    admin_token = request.headers.get("X-Admin-Token")
+    expected = os.getenv("ADMIN_API_TOKEN")
+    if not expected or admin_token != expected:
+        return JSONResponse(status_code=401, content={"ok": False, "error": "unauthorized"})
+    admin_uid = get_user_id_from_request(request) if request else _uid(None)
+    user_id = payload.get("user_id")
+    amount = payload.get("amount")
+    reason = payload.get("reason", "admin_grant")
+    
+    if not user_id or amount is None:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "user_id and amount required"})
+    
+    try:
+        from services.credit_service import get_credit_service
+        credit_service = get_credit_service()
+        result = credit_service.add_credits(
+            user_id=user_id,
+            amount=amount,
+            reason=reason,
+            metadata={"admin_id": admin_uid}
+        )
+        return result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/admin/credits/initialize")
+def api_admin_initialize_credits(request: Request, payload: Dict[str, Any] = Body(...)):
+    """Admin endpoint to manually initialize credits for a user."""
+    admin_token = request.headers.get("X-Admin-Token")
+    expected = os.getenv("ADMIN_API_TOKEN")
+    if not expected or admin_token != expected:
+        return JSONResponse(status_code=401, content={"ok": False, "error": "unauthorized"})
+    user_id = payload.get("user_id")
+    
+    if not user_id:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "user_id required"})
+    
+    try:
+        from services.credit_service import get_credit_service
+        credit_service = get_credit_service()
+        return credit_service.initialize_user_credits(user_id)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
 
 @app.post("/chat/respond")
 def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
@@ -675,7 +1297,7 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
     except Exception as e:
         msg = str(e)
         try:
-            print(f"[{datetime.utcnow().isoformat()}] /chat/respond error uid={uid} sid={session_id}: {msg}")
+            print(f"[{datetime.now(timezone.utc).isoformat()}] /chat/respond error uid={uid} sid={session_id}: {msg}")
         except Exception:
             pass
         # Basic structured error payload for client diagnostics
@@ -695,7 +1317,7 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
                 intent = create_calendar_event_intent(text, default_title="Appointment")
                 if intent.get("ok") and intent.get("intent"):
                     i = intent["intent"]
-                    res = asyncio.run(_create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description")))
+                    res = asyncio.run(_create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description"), user_id=uid))
                     msg_nl = _nl_event_confirmation(i["summary"], i["start"], i["end"], i.get("location"), "your primary calendar")
                     return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": res}], "session_id": session_id}
             use_search = bool(payload.get('google_search'))

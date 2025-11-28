@@ -56,7 +56,9 @@ jobs:
             GCP_LOCATION=${{ vars.REGION }}
             GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
             GOOGLE_CLOUD_LOCATION=${{ vars.REGION }}
-            DEFAULT_MODEL=gemini-flash-latest
+            VERTEX_AI_PROJECT_ID=${{ env.PROJECT_ID }}
+            VERTEX_AI_LOCATION=${{ env.REGION }}
+            DEFAULT_MODEL=${{ vars.DEFAULT_MODEL }}
             GOOGLE_API_KEY=${{ secrets.GOOGLE_API_KEY }}
             GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
             GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
