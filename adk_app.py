@@ -57,13 +57,13 @@ from datetime import datetime
 
 # Initialize Vertex AI environment if configured
 project_id = os.getenv("VERTEX_AI_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
-location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
+location = os.getenv("VERTEX_AI_LOCATION", "australia-southeast1")
 
 # If project is set, we try to configure for Vertex AI
 gemini_kwargs = {}
 if project_id:
-    # Assuming Gemini class accepts kwargs that are passed to the underlying Client or configuration
-    # For google-genai v0.3+, passing these might be necessary or handled via env vars
+    # For google-genai v0.3+, pass project/location directly to Gemini constructor
+    # which will use them when creating the internal Client
     gemini_kwargs = {
         "vertexai": True,
         "project": project_id,
