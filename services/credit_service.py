@@ -30,6 +30,8 @@ from datetime import datetime
 from firebase_admin import firestore
 
 
+from services.firebase_client import get_client
+
 class CreditService:
     """Manage user credit balances and transactions."""
     
@@ -38,7 +40,7 @@ class CreditService:
     LOW_CREDIT_THRESHOLD = 2.0  # Trigger notification
     
     def __init__(self):
-        self.db = firestore.client()
+        self.db = get_client()
     
     def initialize_user_credits(self, user_id: str) -> Dict[str, Any]:
         """

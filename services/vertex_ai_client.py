@@ -61,6 +61,8 @@ class ClientMode(Enum):
     FALLBACK = "fallback"  # Emergency fallback to system key
 
 
+from services.firebase_client import get_client
+
 class VertexAIClient:
     """
     Unified Gemini client with Vertex AI, BYOK, and credit management.
@@ -83,7 +85,7 @@ class VertexAIClient:
         self.user_id = user_id
         self.project_id = project_id or os.getenv("VERTEX_AI_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
         self.location = location or os.getenv("VERTEX_AI_LOCATION", "australia-southeast1")
-        self.db = firestore.client()
+        self.db = get_client()
         
         # Initialize Vertex AI if credentials and module are available
         if self.project_id and VERTEX_AI_AVAILABLE:

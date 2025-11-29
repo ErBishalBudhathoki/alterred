@@ -202,7 +202,10 @@ def _get_user_credentials_file(user_id: Optional[str], account: str = "normal") 
             logger.warning(f"No UserSettings credentials found for {user_id}. Skipping fallback to prevent server-side auth popup.")
             return None
 
-        fallback_dir = "/Users/pratikshatiwari/Documents/trae_projects/altered/credentials"
+        # Use relative path from this file (services/calendar_mcp.py) -> project_root/credentials
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(current_dir)
+        fallback_dir = os.path.join(project_root, "credentials")
         logger.info(f"Fallback directory: {fallback_dir}")
         try:
             files = []
