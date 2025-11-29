@@ -19,7 +19,7 @@ import os
 import datetime
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
-from neuropilot_starter_code import estimate_real_time, detect_hyperfocus
+from services.tools import estimate_real_time, detect_hyperfocus
 
 
 def create_countdown(natural_language_query: str) -> dict:

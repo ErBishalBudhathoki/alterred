@@ -19,7 +19,7 @@ Behavioral Specifications:
 import os
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
-from neuropilot_starter_code import atomize_task
+from services.tools import atomize_task
 
 
 import random

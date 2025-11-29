@@ -77,7 +77,7 @@ from services.calendar_mcp import (
     _delete_event_async,
     _update_event_async,
 )
-from neuropilot_starter_code import atomize_task, reduce_options, estimate_real_time, detect_hyperfocus, match_task_to_energy
+from services.tools import atomize_task, reduce_options, estimate_real_time, detect_hyperfocus, match_task_to_energy
 from services.chat_commands import parse as parse_chat_command, execute as execute_chat_command, help as chat_help
 from services.user_settings import UserSettings
 

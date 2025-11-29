@@ -18,7 +18,7 @@ Behavioral Specifications:
 import os
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
-from neuropilot_starter_code import reduce_options
+from services.tools import reduce_options
 
 
 def default_generator(context: str) -> dict:

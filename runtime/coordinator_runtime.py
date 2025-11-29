@@ -23,7 +23,7 @@ from typing import Dict, Any
 from dotenv import load_dotenv
 from google.genai import Client
 
-from neuropilot_starter_code import (
+from services.tools import (
     analyze_brain_state,
     atomize_task,
     estimate_real_time,

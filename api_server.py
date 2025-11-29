@@ -60,13 +60,13 @@ from services.auth import get_user_id_from_request
 from services.memory_bank_service import get_patterns
 from services.compaction_service import compact_session
 from agents.taskflow_agent import schedule_tasks
-from neuropilot_starter_code import atomize_task, reduce_options
+from services.tools import atomize_task, reduce_options
 from agents.time_perception_agent import create_countdown
 from fastapi.responses import JSONResponse
 from services.timer_store import store_countdown
 from agents.energy_sensory_agent import detect_sensory_overload
 from agents.decision_support_agent import paralysis_protocol
-from neuropilot_starter_code import match_task_to_energy
+from services.tools import match_task_to_energy
 from services.external_brain_store import store_voice_task, get_context, list_voice_tasks
 from services.a2a_service import connect_partner, post_update
 from services.metrics_service import compute_daily_overview, record_api_access

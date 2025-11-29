@@ -18,7 +18,7 @@ Behavioral Specifications:
 import os
 from google.adk.agents import LlmAgent
 from google.adk.models.google_llm import Gemini
-from neuropilot_starter_code import match_task_to_energy
+from services.tools import match_task_to_energy
 
 
 def detect_sensory_overload(text: str) -> dict:
