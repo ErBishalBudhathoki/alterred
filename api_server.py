@@ -37,6 +37,14 @@ Behavioral Specifications:
 """
 
 import os
+import sys
+print(f"DEBUG: sys.path: {sys.path}")
+print(f"DEBUG: CWD: {os.getcwd()}")
+try:
+    print(f"DEBUG: Files in CWD: {os.listdir('.')}")
+except Exception as e:
+    print(f"DEBUG: Failed to list CWD: {e}")
+
 from uuid import uuid4
 from dotenv import load_dotenv
 

@@ -21,4 +21,9 @@ WORKDIR /app
 
 EXPOSE 8080
 
+ENV PYTHONPATH=/app
+
+# Debug: List files to verify neuropilot_starter_code.py exists
+RUN ls -la /app
+
 CMD ["sh", "-c", "uvicorn api_server:app --host 0.0.0.0 --port ${PORT:-8080}"]
