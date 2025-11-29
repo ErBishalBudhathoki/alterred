@@ -1,7 +1,17 @@
-**/node_modules
+# Node modules - exclude from root but allow MCP to build its own
+node_modules
+google-calendar-mcp/node_modules
+
+# Python cache
 **/__pycache__
+
+# Git
 **/.git
 **/.DS_Store
+
+# Python virtual environments
 **/.venv
 **/venv
+
+# Environment files
 **/.env

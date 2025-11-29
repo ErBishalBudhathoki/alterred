@@ -70,21 +70,52 @@ from neuropilot_starter_code import match_task_to_energy
 from services.external_brain_store import store_voice_task, get_context, list_voice_tasks
 from services.a2a_service import connect_partner, post_update
 from services.metrics_service import compute_daily_overview, record_api_access
-from services.calendar_mcp import (
-    list_events_today,
-    check_mcp_ready,
-    account_status,
-    account_clear,
-    account_migrate,
-    list_events_from_calendars,
-    batch_create_events,
-    create_recurring_event,
-    update_recurring_event,
-    find_availability,
-    search_events,
-    analyze_calendar,
-    extract_event_from_image,
-)
+
+# Wrap calendar MCP imports in try-except to prevent import failures from crashing the API
+# This allows the server to start even if MCP dependencies are missing or misconfigured
+_CALENDAR_MCP_AVAILABLE = False
+_CALENDAR_MCP_ERROR = None
+
+try:
+    from services.calendar_mcp import (
+        list_events_today,
+        check_mcp_ready,
+        account_status,
+        account_clear,
+        account_migrate,
+        list_events_from_calendars,
+        batch_create_events,
+        create_recurring_event,
+        update_recurring_event,
+        find_availability,
+        search_events,
+        analyze_calendar,
+        extract_event_from_image,
+    )
+    _CALENDAR_MCP_AVAILABLE = True
+    print("✓ Calendar MCP module loaded successfully")
+except Exception as e:
+    print(f"⚠ Calendar MCP module failed to import: {e}")
+    print(f"  Calendar endpoints will return 503 Service Unavailable")
+    _CALENDAR_MCP_ERROR = str(e)
+    # Define stub functions that return error responses
+    def _mcp_unavailable_response():
+        return {"ok": False, "error": f"Calendar MCP unavailable: {_CALENDAR_MCP_ERROR}"}
+    
+    list_events_today = lambda *args, **kwargs: _mcp_unavailable_response()
+    check_mcp_ready = lambda *args, **kwargs: _mcp_unavailable_response()
+    account_status = lambda *args, **kwargs: _mcp_unavailable_response()
+    account_clear = lambda *args, **kwargs: _mcp_unavailable_response()
+    account_migrate = lambda *args, **kwargs: _mcp_unavailable_response()
+    list_events_from_calendars = lambda *args, **kwargs: _mcp_unavailable_response()
+    batch_create_events = lambda *args, **kwargs: _mcp_unavailable_response()
+    create_recurring_event = lambda *args, **kwargs: _mcp_unavailable_response()
+    update_recurring_event = lambda *args, **kwargs: _mcp_unavailable_response()
+    find_availability = lambda *args, **kwargs: _mcp_unavailable_response()
+    search_events = lambda *args, **kwargs: _mcp_unavailable_response()
+    analyze_calendar = lambda *args, **kwargs: _mcp_unavailable_response()
+    extract_event_from_image = lambda *args, **kwargs: _mcp_unavailable_response()
+
 from services.oauth_handlers import GoogleOAuthHandler
 from services.user_settings import UserSettings
 from adk_app import adk_respond
