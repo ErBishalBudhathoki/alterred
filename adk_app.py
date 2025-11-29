@@ -58,12 +58,11 @@ from datetime import datetime
 # Initialize Vertex AI environment if configured
 project_id = os.getenv("VERTEX_AI_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
 location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
+force_vertex = (os.getenv("FORCE_VERTEX_AI", "").lower() == "true")
 
 # If project is set, we try to configure for Vertex AI
 gemini_kwargs = {}
-if project_id:
-    # Assuming Gemini class accepts kwargs that are passed to the underlying Client or configuration
-    # For google-genai v0.3+, passing these might be necessary or handled via env vars
+if project_id or force_vertex:
     gemini_kwargs = {
         "vertexai": True,
         "project": project_id,
@@ -76,6 +75,7 @@ from services.calendar_mcp import (
     _list_events_async,
     _delete_event_async,
     _update_event_async,
+    smart_parse_calendar_intent,
 )
 from services.tools import atomize_task, reduce_options, estimate_real_time, detect_hyperfocus, match_task_to_energy
 from services.chat_commands import parse as parse_chat_command, execute as execute_chat_command, help as chat_help
@@ -133,19 +133,35 @@ async def tool_create_event(text: str) -> Dict[str, Any]:
     intent = create_calendar_event_intent(text, default_title="Appointment")
     if intent.get("ok") and intent.get("intent"):
         i = intent["intent"]
-        res = await _create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description"), user_id=current_user_id.get())
+        # Use _create_event_async for everything (supports recurrence now)
+        res = await _create_event_async(
+            i["summary"], i["start"], i["end"], 
+            i.get("location"), i.get("description"), 
+            user_id=current_user_id.get(),
+            recurrence=i.get("recurrence")
+        )
         return {"intent": i, "result": res}
     return {"error": "intent_parse_failed", "raw": intent}
 
 
-async def tool_list_today() -> Dict[str, Any]:
+async def tool_search_events(query: str) -> Dict[str, Any]:
     """
-    Tool to list all calendar events for the current day.
+    Tool to search or list calendar events using natural language.
+    Examples: "events today", "schedule for December", "meeting with Bob"
+    Args:
+        query (str): The search query or time range description.
     Returns:
-        Dict[str, Any]: A dictionary containing the list of events.
+        Dict[str, Any]: List of events found.
     """
-    start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    end = datetime.now().replace(hour=23, minute=59, second=59, microsecond=0).isoformat()
+    parsed = smart_parse_calendar_intent(query)
+    start = parsed.get("start")
+    end = parsed.get("end")
+    
+    if not (start and end):
+        now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start = now.isoformat()
+        end = now.replace(hour=23, minute=59, second=59).isoformat()
+        
     return await _list_events_async("primary", start, end, user_id=current_user_id.get())
 
 
@@ -271,7 +287,7 @@ agent = LlmAgent(
     ),
     tools=[
         tool_create_event,
-        tool_list_today,
+        tool_search_events,
         tool_delete_event,
         tool_update_event,
         tool_task_atomize,
@@ -370,10 +386,26 @@ async def _run(user_id: str, session_id: str, text: str):
             except Exception:
                 pass
         
+        # Build per-user agent configuration
+        local_agent = None
+        if has_byok:
+            api_key = user_settings.get_api_key()
+            if api_key:
+                local_agent = LlmAgent(
+                    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest"), api_key=api_key),
+                    name=agent.name,
+                    description=agent.description,
+                    instruction=agent.instruction,
+                    tools=agent.tools,
+                    after_agent_callback=auto_compact_callback,
+                )
+        # Fallback to global agent (Vertex or default)
+        active_runner = runner if local_agent is None else Runner(agent=local_agent, app_name=runner.app_name, session_service=session_service)
+
         content = types.Content(role="user", parts=[types.Part(text=text)])
         last_text = ""
         tool_results: Any = []
-        async for event in runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
+        async for event in active_runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
             if event.content and event.content.parts:
                 for part in event.content.parts:
                     if hasattr(part, "text") and part.text:
@@ -406,9 +438,10 @@ def adk_respond(uid: str, session_id: str, text: str):
         Exception: Propagates exceptions from the underlying execution,
         handling transient errors with retries.
     """
-    import time
-    tries = 2
+    import time, random
+    tries = 4
     last_err = None
+    delay = 0.4
     for _ in range(tries):
         try:
             # Manual override for body double commands to ensure reliability
@@ -443,8 +476,9 @@ def adk_respond(uid: str, session_id: str, text: str):
         except Exception as e:
             last_err = e
             s = str(e)
-            if "UNAVAILABLE" in s or "overloaded" in s:
-                time.sleep(0.4)
+            if ("UNAVAILABLE" in s or "overloaded" in s or "INTERNAL" in s or "internal error" in s.lower()):
+                time.sleep(delay + random.uniform(0.0, 0.2))
+                delay = min(delay * 2, 2.0)
                 continue
             break
     raise last_err

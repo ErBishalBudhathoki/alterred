@@ -35,6 +35,10 @@ class NpTextField extends StatelessWidget {
       keyboardType: keyboardType,
       onSubmitted: onSubmitted,
       textInputAction: textInputAction,
+      autocorrect: false,
+      enableSuggestions: false,
+      smartDashesType: SmartDashesType.disabled,
+      smartQuotesType: SmartQuotesType.disabled,
       decoration: InputDecoration(
         labelText: label,
         border: OutlineInputBorder(

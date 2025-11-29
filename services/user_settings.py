@@ -24,6 +24,13 @@ Behavioral Specifications:
 
 import os
 from typing import Optional, Dict, Any
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
+import os as _os
+import base64
+import secrets
 from cryptography.fernet import Fernet
 import google.generativeai as genai
 from firebase_admin import firestore
@@ -40,16 +47,38 @@ class UserSettings:
         encryption_key = os.getenv("ENCRYPTION_KEY")
         if not encryption_key:
             raise ValueError("ENCRYPTION_KEY environment variable not set")
-        
-        self.cipher = Fernet(encryption_key.encode())
+        self._master_secret = encryption_key.encode()
     
-    def _encrypt(self, data: str) -> str:
-        """Encrypt sensitive data."""
-        return self.cipher.encrypt(data.encode()).decode()
-    
-    def _decrypt(self, encrypted_data: str) -> str:
-        """Decrypt sensitive data."""
-        return self.cipher.decrypt(encrypted_data.encode()).decode()
+    def _derive_key(self, salt: bytes) -> bytes:
+        hkdf = HKDF(
+            algorithm=hashes.SHA256(), length=32, salt=salt, info=b"gemini-user-key", backend=default_backend()
+        )
+        return hkdf.derive(self._master_secret)
+
+    def _encrypt_aes(self, data: str) -> Dict[str, str]:
+        salt = secrets.token_bytes(16)
+        key = self._derive_key(salt)
+        iv = secrets.token_bytes(12)
+        encryptor = Cipher(algorithms.AES(key), modes.GCM(iv), backend=default_backend()).encryptor()
+        ct = encryptor.update(data.encode()) + encryptor.finalize()
+        tag = encryptor.tag
+        return {
+            "enc_version": "2",
+            "salt": base64.b64encode(salt).decode(),
+            "iv": base64.b64encode(iv).decode(),
+            "tag": base64.b64encode(tag).decode(),
+            "ciphertext": base64.b64encode(ct).decode(),
+        }
+
+    def _decrypt_aes(self, payload: Dict[str, Any]) -> str:
+        salt = base64.b64decode(payload["salt"])
+        iv = base64.b64decode(payload["iv"])
+        tag = base64.b64decode(payload["tag"])
+        ct = base64.b64decode(payload["ciphertext"])
+        key = self._derive_key(salt)
+        decryptor = Cipher(algorithms.AES(key), modes.GCM(iv, tag), backend=default_backend()).decryptor()
+        pt = decryptor.update(ct) + decryptor.finalize()
+        return pt.decode()
     
     # ===== Gemini API Key Management =====
     
@@ -64,10 +93,9 @@ class UserSettings:
             return {"ok": False, "error": error}
         
         try:
-            encrypted_key = self._encrypt(api_key)
-            
+            aes_payload = self._encrypt_aes(api_key)
             self.db.collection("users").document(self.user_id).collection("settings").document("api_config").set({
-                "gemini_api_key_encrypted": encrypted_key,
+                "gemini_api_key": aes_payload,
                 "has_custom_key": True,
                 "updated_at": firestore.SERVER_TIMESTAMP
             }, merge=True)
@@ -88,12 +116,25 @@ class UserSettings:
                 return None
             
             data = doc.to_dict()
-            encrypted_key = data.get("gemini_api_key_encrypted")
-            
-            if not encrypted_key:
+            if not data:
                 return None
-            
-            return self._decrypt(encrypted_key)
+            # Prefer AES payload
+            aes_payload = data.get("gemini_api_key")
+            if aes_payload and isinstance(aes_payload, dict):
+                try:
+                    return self._decrypt_aes(aes_payload)
+                except Exception:
+                    return None
+            # Legacy fallback
+            legacy = data.get("gemini_api_key_encrypted")
+            if legacy:
+                try:
+                    # Backward-compatibility: decrypt legacy Fernet keys so users aren't broken
+                    f = Fernet(self._master_secret)
+                    return f.decrypt(legacy.encode()).decode()
+                except Exception:
+                    return None
+            return None
         except Exception:
             return None
     
@@ -114,6 +155,7 @@ class UserSettings:
         """Remove user's custom API key."""
         try:
             self.db.collection("users").document(self.user_id).collection("settings").document("api_config").set({
+                "gemini_api_key": firestore.DELETE_FIELD,
                 "gemini_api_key_encrypted": firestore.DELETE_FIELD,
                 "has_custom_key": False,
                 "updated_at": firestore.SERVER_TIMESTAMP
@@ -155,13 +197,12 @@ class UserSettings:
         Provider examples: 'google_calendar', 'google_drive'
         """
         try:
-            encrypted_access = self._encrypt(access_token)
-            encrypted_refresh = self._encrypt(refresh_token)
-            
+            enc_access = self._encrypt_aes(access_token)
+            enc_refresh = self._encrypt_aes(refresh_token)
             self.db.collection("users").document(self.user_id).collection("oauth_tokens").document(provider).set({
                 "provider": provider,
-                "access_token_encrypted": encrypted_access,
-                "refresh_token_encrypted": encrypted_refresh,
+                "access_token": enc_access,
+                "refresh_token": enc_refresh,
                 "expires_at": expires_at,
                 "scopes": scopes,
                 "updated_at": firestore.SERVER_TIMESTAMP
@@ -188,12 +229,40 @@ class UserSettings:
             if not doc.exists:
                 return None
             
-            data = doc.to_dict()
-            
+            data = doc.to_dict() or {}
+            access_payload = data.get("access_token")
+            refresh_payload = data.get("refresh_token")
+            access_token = None
+            refresh_token = None
+            if isinstance(access_payload, dict):
+                try:
+                    access_token = self._decrypt_aes(access_payload)
+                except Exception:
+                    access_token = None
+            if isinstance(refresh_payload, dict):
+                try:
+                    refresh_token = self._decrypt_aes(refresh_payload)
+                except Exception:
+                    refresh_token = None
+            # Legacy support
+            if access_token is None and isinstance(data.get("access_token_encrypted"), str):
+                try:
+                    f = Fernet(self._master_secret)
+                    access_token = f.decrypt(data.get("access_token_encrypted").encode()).decode()
+                except Exception:
+                    access_token = None
+            if refresh_token is None and isinstance(data.get("refresh_token_encrypted"), str):
+                try:
+                    f = Fernet(self._master_secret)
+                    refresh_token = f.decrypt(data.get("refresh_token_encrypted").encode()).decode()
+                except Exception:
+                    refresh_token = None
+            if not access_token or not refresh_token:
+                return None
             return {
                 "provider": data.get("provider"),
-                "access_token": self._decrypt(data.get("access_token_encrypted")),
-                "refresh_token": self._decrypt(data.get("refresh_token_encrypted")),
+                "access_token": access_token,
+                "refresh_token": refresh_token,
                 "expires_at": data.get("expires_at"),
                 "scopes": data.get("scopes", [])
             }

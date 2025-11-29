@@ -693,6 +693,62 @@ def mcp_calendar_status(request: Request, user_id: str | None = None, _: None = 
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
 
+@app.get("/mcp/calendar/v1/diagnostics")
+def mcp_calendar_diagnostics(request: Request, account: str = "normal", user_id: str | None = None, probe: bool = False, _: None = Depends(_mcp_calendar_guard)):
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        from services.calendar_mcp import _get_user_credentials_file
+        creds_env = os.getenv("GOOGLE_OAUTH_CREDENTIALS")
+        creds_env_abs = os.path.abspath(creds_env) if creds_env else None
+        resolved_path = _get_user_credentials_file(uid, account)
+        resolved_abs = os.path.abspath(resolved_path) if resolved_path else None
+        can_read = False
+        minimal_valid = False
+        if resolved_abs and os.path.exists(resolved_abs):
+            try:
+                with open(resolved_abs, "r") as f:
+                    j = json.load(f)
+                can_read = True
+                minimal_valid = bool(j.get("refresh_token") or j.get("installed") or j.get("web"))
+            except Exception:
+                can_read = False
+        client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+        client_secret_present = bool(os.getenv("GOOGLE_OAUTH_CLIENT_SECRET"))
+        token_path_env = os.getenv("GOOGLE_CALENDAR_MCP_TOKEN_PATH")
+        mcp_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "google-calendar-mcp")
+        build_index = os.path.join(mcp_root, "build", "index.js")
+        build_exists = os.path.exists(build_index)
+        tools = []
+        if probe:
+            try:
+                res = check_mcp_ready(user_id=uid)
+                if res.get("ok"):
+                    tools = res.get("tools", [])
+            except Exception:
+                pass
+        return {
+            "ok": True,
+            "account": account,
+            "env": {
+                "GOOGLE_OAUTH_CREDENTIALS": creds_env_abs,
+                "GOOGLE_OAUTH_CLIENT_ID": client_id,
+                "GOOGLE_OAUTH_CLIENT_SECRET_present": client_secret_present,
+                "GOOGLE_CALENDAR_MCP_TOKEN_PATH": token_path_env
+            },
+            "credentials": {
+                "resolved_path": resolved_abs,
+                "readable": can_read,
+                "minimally_valid": minimal_valid
+            },
+            "mcp": {
+                "local_build_index_exists": build_exists,
+                "tools": tools
+            }
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
 @app.get("/mcp/calendar/v1/credentials")
 def mcp_calendar_credentials(request: Request, account: str = "normal", user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
     import time
@@ -1258,7 +1314,11 @@ def api_save_api_key(request: Request, payload: Dict[str, Any] = Body(...)):
     try:
         user_settings = UserSettings(uid)
         result = user_settings.save_api_key(api_key)
-        
+        try:
+            from services.metrics_service import record_security_event
+            record_security_event("api_key_saved", {"source": "user", "status": "ok" if result.get("ok") else "error"})
+        except Exception:
+            pass
         return result
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
@@ -1286,8 +1346,32 @@ def api_delete_api_key(request: Request):
     try:
         user_settings = UserSettings(uid)
         result = user_settings.delete_api_key()
-        
+        try:
+            from services.metrics_service import record_security_event
+            record_security_event("api_key_deleted", {"source": "user", "status": "ok" if result.get("ok") else "error"})
+        except Exception:
+            pass
         return result
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/settings/api-key/rotate")
+def api_rotate_api_key(request: Request):
+    """Re-wrap user's Gemini API key with a new salt (logical rotation)."""
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    try:
+        us = UserSettings(uid)
+        current = us.get_api_key()
+        if not current:
+            return {"ok": False, "error": "no_key"}
+        res = us.save_api_key(current)
+        try:
+            from services.metrics_service import record_security_event
+            record_security_event("api_key_rotated", {"status": "ok" if res.get("ok") else "error"})
+        except Exception:
+            pass
+        return res
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
@@ -1393,6 +1477,12 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
     text = payload.get("text", "")
     session_id = payload.get("session_id") or uuid4().hex
     try:
+        try:
+            from services.metrics_service import enforce_rate_limit
+            if not enforce_rate_limit(uid):
+                return {"text": "Rate limit exceeded. Please wait a minute and try again.", "tools": [], "session_id": session_id, "error": "rate_limited"}
+        except Exception:
+            pass
         last_text, tool_results = adk_respond(uid, session_id, text)
         return {"text": last_text, "tools": tool_results, "session_id": session_id}
     except Exception as e:
@@ -1414,11 +1504,14 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
             low = text.lower()
             if "calendar" in low or "event" in low or "add an event" in low:
                 import asyncio
-                from services.calendar_mcp import create_calendar_event_intent, _create_event_async
+                from services.calendar_mcp import create_calendar_event_intent, _create_event_async, _create_recurring_event_async
                 intent = create_calendar_event_intent(text, default_title="Appointment")
                 if intent.get("ok") and intent.get("intent"):
                     i = intent["intent"]
-                    res = asyncio.run(_create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description"), user_id=uid))
+                    if i.get("recurrence"):
+                        res = asyncio.run(_create_recurring_event_async(i["summary"], i["start"], i["end"], i["recurrence"], calendar_id="primary", location=i.get("location"), description=i.get("description"), user_id=uid))
+                    else:
+                        res = asyncio.run(_create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description"), user_id=uid))
                     msg_nl = _nl_event_confirmation(i["summary"], i["start"], i["end"], i.get("location"), "your primary calendar")
                     return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": res}], "session_id": session_id}
             use_search = bool(payload.get('google_search'))

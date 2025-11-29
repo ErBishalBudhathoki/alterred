@@ -163,3 +163,51 @@ def record_api_access(endpoint: str, status: str, latency_ms: int, error: str | 
     if error:
         data["error"] = error
     _metrics_doc(uid, dk).collection("events").add(data)
+
+
+def record_security_event(kind: str, metadata: Dict[str, Any] | None = None) -> None:
+    """
+    Record a security-related event (e.g., api_key_saved, api_key_deleted, api_key_rotated, api_key_access).
+    """
+    uid = os.getenv("USER") or "terminal_user"
+    dk = _date_key()
+    data = {
+        "kind": kind,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
+    if metadata:
+        data.update({f"meta_{k}": v for k, v in metadata.items()})
+    _metrics_doc(uid, dk).collection("events").add(data)
+
+
+def enforce_rate_limit(user_id: str, limit_per_minute: int = None) -> bool:
+    """
+    Naive Firestore-backed rate limit: track per-minute counters.
+    Returns True if allowed, False if over limit.
+    """
+    try:
+        db = get_client()
+        if not db:
+            return True
+        limit = int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "60")) if limit_per_minute is None else limit_per_minute
+        now = datetime.utcnow()
+        minute_key = now.strftime("%Y%m%d%H%M")
+        doc_ref = db.collection("users").document(user_id).collection("metrics").document("rate_limits").collection("minutes").document(minute_key)
+        snap = doc_ref.get()
+        if snap.exists:
+            data = snap.to_dict() or {}
+            count = int(data.get("count", 0)) + 1
+            if count > limit:
+                _metrics_doc(user_id, _date_key()).collection("events").add({
+                    "kind": "rate_limit_violation",
+                    "limit": limit,
+                    "timestamp": now.isoformat(),
+                })
+                return False
+            doc_ref.set({"count": count, "timestamp": now.isoformat()}, merge=True)
+            return True
+        else:
+            doc_ref.set({"count": 1, "timestamp": now.isoformat()})
+            return True
+    except Exception:
+        return True

@@ -136,10 +136,9 @@ def _get_user_credentials_file(user_id: Optional[str], account: str = "normal") 
                     if expires_at.tzinfo is None:
                         expires_at = expires_at.replace(tzinfo=timezone.utc)
                 except Exception:
-                    expires_at = datetime.now()
-                    
-                # Check if expired OR will expire in next 5 minutes
-                needs_refresh = datetime.now() >= (expires_at - timedelta(minutes=5))
+                    expires_at = datetime.now(timezone.utc)
+                now_utc = datetime.now(timezone.utc)
+                needs_refresh = now_utc >= (expires_at - timedelta(minutes=5))
                 
                 if needs_refresh:
                     logger.info(f"Refreshing token for user {user_id} before creating MCP temp file...")
@@ -267,18 +266,27 @@ def _parse_time_natural(text: str) -> Optional[Dict[str, str]]:
     # This assumes the user's "natural language" intent maps to UTC if no timezone is provided.
     now = datetime.now()
     lower = text.lower()
-    # Day offset
     day_offset = 0
     if "day after tomorrow" in lower:
         day_offset = 2
     elif "tomorrow" in lower:
         day_offset = 1
     base_day = now + timedelta(days=day_offset)
+    import re
+    m_weekday = re.search(r"\b(next\s+|this\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", lower)
+    if m_weekday:
+        force_next = bool(m_weekday.group(1) and m_weekday.group(1).strip().startswith("next"))
+        name = m_weekday.group(2)
+        dow = {"monday":0,"tuesday":1,"wednesday":2,"thursday":3,"friday":4,"saturday":5,"sunday":6}
+        target = dow.get(name, base_day.weekday())
+        delta = (target - base_day.weekday()) % 7
+        if delta == 0 and force_next:
+            delta = 7
+        base_day = (base_day + timedelta(days=delta)).replace(hour=base_day.hour, minute=base_day.minute, second=base_day.second, microsecond=0)
 
     # Duration
     minutes = _parse_duration_minutes(lower)
 
-    import re
     # 1) HH:MM with optional am/pm
     m = re.search(r"(\b\d{1,2}):(\d{2})\s*(am|pm)?\b", lower)
     if m:
@@ -308,69 +316,139 @@ def _parse_time_natural(text: str) -> Optional[Dict[str, str]]:
         end = start + timedelta(minutes=minutes)
         return {"start": start.isoformat(), "end": end.isoformat()}
 
+    # 3) Month name: "in December", "December", "December 2025"
+    m_month = re.search(r"\b(in\s+)?(january|february|march|april|may|june|july|august|september|october|november|december)\s*(\d{4})?\b", lower)
+    if m_month:
+        month_name = m_month.group(2)
+        year_str = m_month.group(3)
+        month_map = {
+            "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+            "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12
+        }
+        m_idx = month_map[month_name]
+        y = int(year_str) if year_str else now.year
+        
+        # If month is in the past for this year, and year wasn't specified, assume next year
+        if not year_str and m_idx < now.month:
+            y += 1
+            
+        import calendar
+        last_day = calendar.monthrange(y, m_idx)[1]
+        start = datetime(y, m_idx, 1)
+        end = datetime(y, m_idx, last_day, 23, 59, 59)
+        return {"start": start.isoformat(), "end": end.isoformat()}
+
     return None
 
 
-async def _create_event_async(summary: str, start_iso: str, end_iso: str, location: Optional[str], description: Optional[str], user_id: Optional[str] = None) -> Dict[str, Any]:
+async def _create_event_async(summary: str, start_iso: str, end_iso: str, location: Optional[str], description: Optional[str], user_id: Optional[str] = None, recurrence: Optional[list[str]] = None) -> Dict[str, Any]:
     logger.info(f"Starting event creation for user {user_id}: {summary}")
-    if ClientSession is None:
-        logger.error("mcp Python SDK not installed")
-        return {"ok": False, "error": "mcp Python SDK not installed"}
+    payload = {
+        "calendarId": "primary",
+        "summary": summary,
+        "start": start_iso,
+        "end": end_iso,
+        "location": location or "",
+        "description": description or "",
+    }
+    if recurrence:
+        payload["recurrence"] = recurrence
+    return await _call_mcp("create-event", payload, user_id)
 
-    creds_path = _get_user_credentials_file(user_id)
-    if not creds_path:
-        logger.warning(f"No credentials found for user {user_id}")
-        return {"ok": False, "error": "No calendar credentials available. Please connect your Google Calendar."}
 
-    import os as _os
-    # Build env dict - prevent fallback to global credentials
-    env_dict = {}
-    if creds_path:
-        env_dict["GOOGLE_OAUTH_CREDENTIALS"] = _os.path.abspath(creds_path)
-        env_dict["GOOGLE_ACCOUNT_MODE"] = "normal"
-    elif user_id:
-        env_dict["GOOGLE_OAUTH_CREDENTIALS"] = ""
-    
-    params = _get_mcp_server_params(env_dict)
-
+def smart_parse_calendar_intent(text: str) -> Dict[str, Any]:
+    """
+    Uses Gemini to parse natural language calendar requests into structured data.
+    """
     try:
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools = await session.list_tools()
-                names = [t.name for t in tools.tools]
-                if "create-event" not in names:
-                    logger.error("create-event tool not available")
-                    return {"ok": False, "error": "create-event tool not available"}
-
-                res = await session.call_tool("create-event", {
-                    "calendarId": "primary",
-                    "summary": summary,
-                    "start": start_iso,
-                    "end": end_iso,
-                    "location": location or "",
-                    "description": description or "",
-                })
-                logger.info(f"Event created successfully: {summary}")
-                return {"ok": True, "result": res.content}
+        # Prefer API Key client to avoid Vertex AI region/model availability issues
+        if os.getenv("GOOGLE_API_KEY"):
+            client = _GenClient(api_key=os.getenv("GOOGLE_API_KEY"))
+        else:
+            client = _genai_client()
+            
+        now = datetime.now().isoformat()
+        # Use a robust model name for Vertex AI compatibility
+        model_name = os.getenv("DEFAULT_MODEL", "gemini-pro")
+        if model_name == "gemini-flash-latest" or "flash" in model_name:
+            # Fallback to gemini-pro as flash seems unavailable in this region/setup
+            model_name = "gemini-pro"
+            
+        prompt = f"""
+        You are a smart calendar assistant. Parse the following user request into a JSON object.
+        Current time: {now}
+        User Request: "{text}"
+        
+        Return JSON with these keys:
+        - operation: "create", "list", "update", "delete", or "unknown"
+        - summary: (for create/update) Event title
+        - start: (ISO 8601 string) Start time. If all day, use YYYY-MM-DD. Calculate based on current time.
+        - end: (ISO 8601 string) End time.
+        - recurrence: (list of strings, optional) RRULE strings if repeating. e.g. ["RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"]
+        - location: (optional)
+        - description: (optional)
+        - query: (for list/search) Search keywords
+        - event_id: (for update/delete)
+        - calendar_id: (default "primary")
+        
+        Rules:
+        - For "Monday to Friday", if it implies daily events (like "meeting from Mon to Fri"), create a DAILY recurrence or WEEKLY with BYDAY.
+        - For "from December month", set start to Dec 1st and end to Dec 31st of current/next year.
+        - Be precise with ISO dates.
+        """
+        
+        resp = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
+        import json
+        txt = resp.text
+        if "```json" in txt:
+            txt = txt.split("```json")[1].split("```")[0]
+        elif "```" in txt:
+            txt = txt.split("```")[1].split("```")[0]
+        return json.loads(txt)
     except Exception as e:
-        logger.error(f"Error in _create_event_async: {e}")
-        raise e
-    finally:
-        # Clean up temp file if it was created for user
-        if user_id and creds_path and creds_path.startswith(tempfile.gettempdir()):
-            try:
-                os.unlink(creds_path)
-            except Exception:
-                pass
+        logger.error(f"Smart parse failed: {e}")
+        # Fallback to regex parsing for search queries if LLM fails
+        # This ensures "events in December" still works even if Gemini is down
+        fallback = _parse_time_natural(text)
+        if fallback:
+            return {
+                "operation": "list", # Default to list/search if we just found a date
+                "start": fallback["start"],
+                "end": fallback["end"],
+                "query": text
+            }
+        return {"operation": "unknown", "error": str(e)}
 
 
 def create_calendar_event_intent(user_text: str, default_title: str = "Appointment") -> Dict[str, Any]:
+    # Try smart parse first
+    try:
+        parsed = smart_parse_calendar_intent(user_text)
+        if parsed.get("operation") == "create":
+            return {
+                "ok": True,
+                "intent": {
+                    "summary": parsed.get("summary") or default_title,
+                    "start": parsed.get("start"),
+                    "end": parsed.get("end"),
+                    "location": parsed.get("location"),
+                    "description": parsed.get("description") or user_text,
+                    "recurrence": parsed.get("recurrence")
+                }
+            }
+    except Exception:
+        pass
+
     parsed = _parse_time_natural(user_text)
     if not parsed:
         return {"ok": False, "error": "Could not parse time", "intent": None}
     title = _extract_title(user_text) or default_title
-    recurrence = _extract_recurrence(user_text)
+    recurrence_str = _extract_recurrence(user_text, parsed["start"], parsed["end"])
+    recurrence_list = [recurrence_str] if recurrence_str else None
+    
     return {
         "ok": True,
         "intent": {
@@ -379,11 +457,11 @@ def create_calendar_event_intent(user_text: str, default_title: str = "Appointme
             "end": parsed["end"],
             "location": None,
             "description": user_text,
-            "recurrence": recurrence
+            "recurrence": recurrence_list
         }
     }
 
-def _extract_recurrence(text: str) -> Optional[str]:
+def _extract_recurrence(text: str, start_iso: Optional[str] = None, end_iso: Optional[str] = None) -> Optional[str]:
     t = text.lower()
     
     # Handle "every Monday", "every Tuesday and Thursday" FIRST
@@ -403,17 +481,134 @@ def _extract_recurrence(text: str) -> Optional[str]:
                     found_days.append(code)
     
     if found_days:
-        return f"RRULE:FREQ=WEEKLY;BYDAY={','.join(found_days)}"
+        base_rule = f"RRULE:FREQ=WEEKLY;BYDAY={','.join(found_days)}"
+        bounded = _maybe_bounded_until_or_count(t, start_iso, end_iso, base_rule)
+        return bounded or base_rule
+
+    # Weekday/weekend shortcuts
+    import re
+    if re.search(r"\bweekdays?\b", t):
+        base_rule = "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
+        bounded = _maybe_bounded_until_or_count(t, start_iso, end_iso, base_rule)
+        return bounded or base_rule
+    if re.search(r"\bweekends?\b", t):
+        base_rule = "RRULE:FREQ=WEEKLY;BYDAY=SA,SU"
+        bounded = _maybe_bounded_until_or_count(t, start_iso, end_iso, base_rule)
+        return bounded or base_rule
+
+    # Ranges like "from Monday to Friday" or "Mon-Fri"
+    if re.search(r"\b(?:from\s+)?monday\s*(?:to|-)\s*friday\b", t) or re.search(r"\b(?:from\s+)?mon\s*(?:to|-)\s*fri\b", t):
+        base_rule = "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
+        bounded = _maybe_bounded_until_or_count(t, start_iso, end_iso, base_rule)
+        return bounded or base_rule
 
     if "every day" in t or "daily" in t:
-        return "RRULE:FREQ=DAILY"
+        base_rule = "RRULE:FREQ=DAILY"
+        bounded = _maybe_bounded_until_or_count(t, start_iso, end_iso, base_rule)
+        return bounded or base_rule
     if "every week" in t or "weekly" in t:
-        return "RRULE:FREQ=WEEKLY"
+        base_rule = "RRULE:FREQ=WEEKLY"
+        bounded = _maybe_bounded_until_or_count(t, start_iso, end_iso, base_rule)
+        return bounded or base_rule
     if "every month" in t or "monthly" in t:
-        return "RRULE:FREQ=MONTHLY"
+        base_rule = "RRULE:FREQ=MONTHLY"
+        bounded = _maybe_bounded_until_or_count(t, start_iso, end_iso, base_rule)
+        return bounded or base_rule
     if "every year" in t or "yearly" in t:
-        return "RRULE:FREQ=YEARLY"
+        base_rule = "RRULE:FREQ=YEARLY"
+        bounded = _maybe_bounded_until_or_count(t, start_iso, end_iso, base_rule)
+        return bounded or base_rule
         
+    return None
+
+
+def _maybe_bounded_until_or_count(t: str, start_iso: Optional[str], end_iso: Optional[str], base_rule: str) -> Optional[str]:
+    """Augment RRULE with UNTIL or COUNT when the text specifies bounded ranges.
+    Examples:
+    - "from next Monday to next Friday"
+    - "until Dec 5"
+    - "for 3 weeks" / "repeat 5 times"
+    """
+    import re
+    from datetime import datetime
+    # 1) COUNT phrases
+    m_count = re.search(r"\b(?:repeat|times|occurrences?)\b\s*(\d{1,3})", t)
+    if m_count:
+        cnt = int(m_count.group(1))
+        return f"{base_rule};COUNT={cnt}"
+    m_for_weeks = re.search(r"\bfor\s+(\d{1,3})\s+weeks?\b", t)
+    if m_for_weeks:
+        weeks = int(m_for_weeks.group(1))
+        if start_iso:
+            try:
+                base = datetime.fromisoformat(start_iso)
+                # End at the end of the last week window to include all BYDAY occurrences
+                end_dt = base + timedelta(weeks=max(1, weeks) - 1, days=6)
+                return f"{base_rule};UNTIL={_fmt_until(end_dt)}"
+            except Exception:
+                pass
+        # Fallback to occurrences: approximate by occurrences per week when BYDAY present
+        if "BYDAY=" in base_rule:
+            byday = base_rule.split("BYDAY=")[-1]
+            days_per_week = len(byday.split(","))
+            return f"{base_rule};COUNT={weeks * days_per_week}"
+        return f"{base_rule};COUNT={weeks}"
+    m_for_days = re.search(r"\bfor\s+(\d{1,3})\s+days?\b", t)
+    if m_for_days and ("FREQ=DAILY" in base_rule):
+        days = int(m_for_days.group(1))
+        return f"{base_rule};COUNT={days}"
+    
+    # 2) UNTIL by explicit end date or weekday range
+    def _fmt_until(dt: datetime) -> str:
+        # RFC5545 basic UTC format: YYYYMMDDT235959Z
+        z = dt.astimezone().replace(hour=23, minute=59, second=59, microsecond=0)
+        return z.strftime("%Y%m%dT%H%M%SZ")
+    try:
+        start_dt = datetime.fromisoformat(start_iso) if start_iso else None
+    except Exception:
+        start_dt = None
+    
+    # until <month day>, <year> or until <YYYY-MM-DD>
+    m_until_date = re.search(r"\buntil\s+(\w+\s+\d{1,2}(?:,\s*\d{4})?|\d{4}-\d{2}-\d{2})\b", t)
+    if m_until_date:
+        try:
+            val = m_until_date.group(1)
+            end_dt = None
+            from datetime import datetime
+            if re.match(r"\d{4}-\d{2}-\d{2}", val):
+                end_dt = datetime.strptime(val, "%Y-%m-%d")
+            else:
+                # Try "December 5, 2024" or "December 5"
+                try:
+                    end_dt = datetime.strptime(val, "%B %d, %Y")
+                except Exception:
+                    try:
+                        tmp = datetime.strptime(val, "%B %d")
+                        end_dt = tmp.replace(year=(start_dt.year if start_dt else datetime.now().year))
+                    except Exception:
+                        end_dt = None
+            return f"{base_rule};UNTIL={_fmt_until(end_dt)}"
+        except Exception:
+            pass
+    
+    # from/next Weekday to/– next Weekday
+    m_range = re.search(r"\b(?:from\s+)?(next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s*(?:to|-|until)\s*(next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", t)
+    if m_range and start_dt:
+        start_next = bool(m_range.group(1))
+        start_day = m_range.group(2)
+        end_next = bool(m_range.group(3))
+        end_day = m_range.group(4)
+        dow = {"monday":0,"tuesday":1,"wednesday":2,"thursday":3,"friday":4,"saturday":5,"sunday":6}
+        def next_weekday(base: datetime, target_dow: int, force_next: bool) -> datetime:
+            delta = (target_dow - base.weekday()) % 7
+            if delta == 0 or force_next:
+                delta = (delta or 7)
+            return (base + timedelta(days=delta)).replace(hour=base.hour, minute=base.minute, second=base.second, microsecond=0)
+        start_bound = next_weekday(start_dt, dow[start_day], start_next) if start_dt else None
+        end_bound = next_weekday(start_dt, dow[end_day], True if end_next else False) if start_dt else None
+        if end_bound and start_bound and end_bound >= start_bound:
+            return f"{base_rule};UNTIL={_fmt_until(end_bound)}"
+    
     return None
 
 
@@ -426,56 +621,19 @@ def create_calendar_event(summary: str, start_iso: str, end_iso: str, location: 
 
 async def _list_events_async(calendar_id: str, time_min_iso: str, time_max_iso: str, user_id: Optional[str] = None) -> Dict[str, Any]:
     logger.info(f"Listing events for user {user_id}: {time_min_iso} - {time_max_iso}")
-    if ClientSession is None:
-        logger.error("mcp Python SDK not installed")
-        return {"ok": False, "error": "mcp Python SDK not installed"}
-
-    creds_path = _get_user_credentials_file(user_id)
-    if not creds_path:
-        logger.warning(f"No credentials found for user {user_id}")
-        return {"ok": False, "error": "No calendar credentials available. Please connect your Google Calendar."}
-
-    import os as _os
-    # Build env dict - prevent fallback to global credentials
-    env_dict = {}
-    if creds_path:
-        env_dict["GOOGLE_OAUTH_CREDENTIALS"] = _os.path.abspath(creds_path)
-        env_dict["GOOGLE_ACCOUNT_MODE"] = "normal"
-    elif user_id:
-        env_dict["GOOGLE_OAUTH_CREDENTIALS"] = ""
-    
-    params = _get_mcp_server_params(env_dict)
-
-    try:
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools = await session.list_tools()
-                names = [t.name for t in tools.tools]
-                if "list-events" not in names:
-                    logger.error("list-events tool not available")
-                    return {"ok": False, "error": "list-events tool not available"}
-
-                res = await session.call_tool("list-events", {
-                    "calendarId": calendar_id,
-                    "timeMin": time_min_iso,
-                    "timeMax": time_max_iso,
-                    "singleEvents": True,
-                    "orderBy": "startTime"
-                })
-                parsed = _parse_content_json(res.content)
-                logger.info(f"Listed {len(parsed.get('events', [])) if parsed else 0} events")
-                return {"ok": True, "result": parsed or {"events": [], "raw": str(res.content)}}
-    except Exception as e:
-        logger.error(f"Error in _list_events_async: {e}")
-        raise e
-    finally:
-        # Clean up temp file if it was created for user
-        if user_id and creds_path and creds_path.startswith(tempfile.gettempdir()):
-            try:
-                os.unlink(creds_path)
-            except Exception:
-                pass
+    payload = {
+        "calendarId": calendar_id,
+        "timeMin": time_min_iso,
+        "timeMax": time_max_iso,
+        "singleEvents": True,
+        "orderBy": "startTime"
+    }
+    res = await _call_mcp("list-events", payload, user_id)
+    if res.get("ok"):
+        parsed = _parse_content_json(res.get("result"))
+        logger.info(f"Listed {len(parsed.get('events', [])) if parsed else 0} events")
+        return {"ok": True, "result": parsed or {"events": []}}
+    return res
 
 
 def list_events_today(calendar_id: str = "primary", user_id: Optional[str] = None) -> Dict[str, Any]:
@@ -512,9 +670,9 @@ def check_mcp_ready(user_id: Optional[str] = None) -> Dict[str, Any]:
                         if expires_at.tzinfo is None:
                             expires_at = expires_at.replace(tzinfo=timezone.utc)
                     except Exception:
-                        expires_at = datetime.now()
-                    
-                    if datetime.now() >= expires_at:
+                        expires_at = datetime.now(timezone.utc)
+                    now_utc = datetime.now(timezone.utc)
+                    if now_utc >= expires_at:
                         logger.info(f"Token expired for user {user_id} in check_mcp_ready, attempting refresh...")
                         oauth_handler = GoogleOAuthHandler()
                         refresh_result = oauth_handler.refresh_access_token(tokens["refresh_token"])
@@ -616,6 +774,12 @@ async def _delete_event_async(calendar_id: str, event_id: str, user_id: Optional
     if creds_path:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = _os.path.abspath(creds_path)
         env_dict["GOOGLE_ACCOUNT_MODE"] = "normal"
+        cid = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+        csec = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+        if cid:
+            env_dict["GOOGLE_OAUTH_CLIENT_ID"] = cid
+        if csec:
+            env_dict["GOOGLE_OAUTH_CLIENT_SECRET"] = csec
     elif user_id:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = ""
     
@@ -927,7 +1091,7 @@ def _extract_title(text: str) -> Optional[str]:
 
     # 3. General "Schedule X"
     # Capture everything after the verb
-    m_schedule = re.search(r'''\b(?:schedule|create|add|book)\s+(.+?)(?:\s+(?:at|on|from|starting|beginning|in|to my calendar|every)|$)''', t, re.IGNORECASE)
+    m_schedule = re.search(r'''\b(?:schedule|create|add|book)\s+(.+?)(?:\s+(?:at|on|from|starting|beginning|in|to my calendar|every|to|next|this)|$)''', t, re.IGNORECASE)
     if m_schedule:
         raw_title = m_schedule.group(1).strip()
         
@@ -943,8 +1107,13 @@ def _extract_title(text: str) -> Optional[str]:
         # If it is JUST "meeting" or "event", ignore it
         if raw_title.lower() in ["meeting", "event", "appointment", "session", "call", "sync"]:
             return None
-            
-        return raw_title
+        # Remove "recurring" adjective
+        raw_title = re.sub(r"\brecurring\b", "", raw_title, flags=re.IGNORECASE).strip()
+        # Remove trailing range like "from Monday to Friday"
+        raw_title = re.sub(r"\bfrom\s+\w+\s+(?:to|-)\s+\w+\b", "", raw_title, flags=re.IGNORECASE).strip()
+        # Remove trailing day lists
+        raw_title = re.sub(r"\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)(?:,?\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))+\b", "", raw_title, flags=re.IGNORECASE).strip()
+        return raw_title or None
 
     # 4. "about X" pattern
     m_about = re.search(r'''\babout\s+(.+?)(?:\s+(?:at|on|from|with|every)|$)''', t, re.IGNORECASE)
@@ -1082,7 +1251,13 @@ async def _call_mcp(tool: str, payload: Dict[str, Any], user_id: Optional[str] =
     env_dict = {}
     if creds_path:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = _os.path.abspath(creds_path)
-        env_dict["GOOGLE_ACCOUNT_MODE"] = "normal"
+        env_dict["GOOGLE_ACCOUNT_MODE"] = account
+        cid = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+        csec = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+        if cid:
+            env_dict["GOOGLE_OAUTH_CLIENT_ID"] = cid
+        if csec:
+            env_dict["GOOGLE_OAUTH_CLIENT_SECRET"] = csec
     elif user_id:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = ""
     params = _get_mcp_server_params(env_dict)
