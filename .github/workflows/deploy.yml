@@ -78,6 +78,7 @@ jobs:
         run: |
           gcloud run services describe "${{ env.SERVICE_NAME }}" --region "${{ env.REGION }}" --format="value(status.url)" || exit 1
 
+      # Frontend Deployment
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:

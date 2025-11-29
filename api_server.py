@@ -152,6 +152,66 @@ app.include_router(vertex_router)
 app.include_router(byok_router)
 
 
+@app.on_event("startup")
+async def startup_event():
+    """
+    Startup event handler for logging and diagnostics.
+    This runs when the FastAPI application starts up.
+    """
+    print("=" * 80)
+    print("🚀 Altered API Server Starting...")
+    print("=" * 80)
+    
+    # Log environment information
+    print(f"📍 Python version: {sys.version}")
+    print(f"📍 Working directory: {os.getcwd()}")
+    print(f"📍 PORT environment variable: {os.getenv('PORT', 'NOT SET')}")
+    
+    # Log critical environment variables (masked)
+    env_vars = [
+        "FIREBASE_PROJECT_ID",
+        "GCP_PROJECT_ID",
+        "GOOGLE_CLOUD_PROJECT",
+        "DEFAULT_MODEL",
+        "GOOGLE_API_KEY",
+        "GOOGLE_OAUTH_CLIENT_ID"
+    ]
+    print("\n📋 Environment Variables:")
+    for var in env_vars:
+        value = os.getenv(var)
+        if value:
+            if "KEY" in var or "SECRET" in var:
+                print(f"  ✓ {var}: ***{value[-4:]}")
+            else:
+                print(f"  ✓ {var}: {value}")
+        else:
+            print(f"  ✗ {var}: NOT SET")
+    
+    # Log MCP status
+    print(f"\n📅 Calendar MCP Status: {'✓ Available' if _CALENDAR_MCP_AVAILABLE else '✗ Unavailable'}")
+    if not _CALENDAR_MCP_AVAILABLE and _CALENDAR_MCP_ERROR:
+        print(f"   Error: {_CALENDAR_MCP_ERROR}")
+    
+    # Check if google-calendar-mcp directory exists
+    mcp_path = os.path.join(os.getcwd(), "google-calendar-mcp")
+    if os.path.exists(mcp_path):
+        print(f"✓ google-calendar-mcp directory exists at: {mcp_path}")
+        build_path = os.path.join(mcp_path, "build", "index.js")
+        if os.path.exists(build_path):
+            print(f"✓ MCP build artifact exists")
+        else:
+            print(f"✗ MCP build artifact NOT found at: {build_path}")
+    else:
+        print(f"✗ google-calendar-mcp directory NOT found")
+    
+    # Log search tool status
+    print(f"\n🔍 Google Search Tool: {'✓ Available' if _SEARCH_TOOL else '✗ Not available'}")
+    
+    print("\n" + "=" * 80)
+    print("✅ Altered API Server startup complete - ready to accept connections")
+    print("=" * 80)
+
+
 @app.middleware("http")
 async def _strip_api_prefix(request: Request, call_next):
     """
@@ -173,6 +233,19 @@ async def _strip_api_prefix(request: Request, call_next):
     elif p == "/api":
         request.scope["path"] = "/"
     return await call_next(request)
+
+
+@app.get("/health")
+async def health_check():
+    """
+    Simple health check endpoint.
+    """
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "mcp_calendar": "available" if _CALENDAR_MCP_AVAILABLE else "unavailable",
+        "search_tool": "available" if _SEARCH_TOOL else "unavailable"
+    }
 
 
 def _uid(user_id: str | None) -> str:
