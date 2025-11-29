@@ -327,6 +327,7 @@ async def _create_event_async(summary: str, start_iso: str, end_iso: str, locati
     env_dict = {}
     if creds_path:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = _os.path.abspath(creds_path)
+        env_dict["GOOGLE_ACCOUNT_MODE"] = "normal"
     elif user_id:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = ""
     
@@ -439,6 +440,7 @@ async def _list_events_async(calendar_id: str, time_min_iso: str, time_max_iso: 
     env_dict = {}
     if creds_path:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = _os.path.abspath(creds_path)
+        env_dict["GOOGLE_ACCOUNT_MODE"] = "normal"
     elif user_id:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = ""
     
@@ -613,6 +615,7 @@ async def _delete_event_async(calendar_id: str, event_id: str, user_id: Optional
     env_dict = {}
     if creds_path:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = _os.path.abspath(creds_path)
+        env_dict["GOOGLE_ACCOUNT_MODE"] = "normal"
     elif user_id:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = ""
     
@@ -743,6 +746,7 @@ async def _update_event_async(calendar_id: str, event_id: str, start_iso: str, e
     env_dict = {}
     if creds_path:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = _os.path.abspath(creds_path)
+        env_dict["GOOGLE_ACCOUNT_MODE"] = "normal"
     elif user_id:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = ""
     
@@ -1078,9 +1082,10 @@ async def _call_mcp(tool: str, payload: Dict[str, Any], user_id: Optional[str] =
     env_dict = {}
     if creds_path:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = _os.path.abspath(creds_path)
+        env_dict["GOOGLE_ACCOUNT_MODE"] = "normal"
     elif user_id:
         env_dict["GOOGLE_OAUTH_CREDENTIALS"] = ""
-    params = StdioServerParameters(command="npx", args=["@cocal/google-calendar-mcp"], env=env_dict)
+    params = _get_mcp_server_params(env_dict)
     attempt = 0
     delay = 0.5
     last_err = None
