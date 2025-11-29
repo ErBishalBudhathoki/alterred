@@ -2178,7 +2178,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       final r = await api.health();
       final wasOk = _backendOk;
       if (!mounted) return;
-      setState(() => _backendOk = r['ok'] == true);
+      setState(() => _backendOk = r['ok'] == true || r['status'] == 'ok');
       if (_backendOk && !wasOk && _pendingVoiceText != null) {
         final t = _pendingVoiceText!;
         _pendingVoiceText = null;

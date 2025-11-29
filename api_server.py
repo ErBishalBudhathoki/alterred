@@ -242,6 +242,7 @@ async def health_check():
     """
     return {
         "status": "ok",
+        "ok": True,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "mcp_calendar": "available" if _CALENDAR_MCP_AVAILABLE else "unavailable",
         "search_tool": "available" if _SEARCH_TOOL else "unavailable"
@@ -309,18 +310,6 @@ def _mcp_calendar_guard(request: Request) -> None:
     _MCP_RATE_BUCKETS[ip] = bucket
 
 
-@app.get("/health")
-def health():
-    """
-    Health check endpoint.
-
-    Used by monitoring systems (e.g., Kubernetes, load balancers) to verify
-    that the service is running and responsive.
-
-    Returns:
-        dict: A dictionary containing status "ok" and the current server time.
-    """
-    return {"ok": True, "time": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/sessions/yesterday")

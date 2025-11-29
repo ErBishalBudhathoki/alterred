@@ -102,9 +102,8 @@ class _HealthScreenState extends ConsumerState<HealthScreen> {
                 try {
                   final r = await api.health();
                   final ready = r['mcp_ready'] == true ||
-                      r.containsKey('tools') ||
-                      r.containsKey('calendar') ||
-                      r.containsKey('mcp');
+                      r['mcp_calendar'] == 'available' ||
+                      r['search_tool'] == 'available';
                   if (!context.mounted) return;
                   setState(() => _mcpReady = ready);
                 } catch (e) {
