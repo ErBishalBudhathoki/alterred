@@ -62,7 +62,7 @@ from services.compaction_service import compact_session
 from agents.taskflow_agent import schedule_tasks
 from services.tools import atomize_task, reduce_options
 from agents.time_perception_agent import create_countdown
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from services.timer_store import store_countdown
 from agents.energy_sensory_agent import detect_sensory_overload
 from agents.decision_support_agent import paralysis_protocol
@@ -1093,9 +1093,9 @@ def api_oauth_calendar_callback(request: Request, code: str, state: str):
         except Exception:
             pass
 
-        return {"ok": True, "message": "Calendar connected successfully"}
+        return RedirectResponse(url="/#/settings?connected=true")
     except Exception as e:
-        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+        return RedirectResponse(url=f"/#/settings?error={str(e)}")
 
 
 @app.delete("/auth/google/calendar")
