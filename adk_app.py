@@ -77,49 +77,17 @@ from services.calendar_mcp import (
     _delete_event_async,
     _update_event_async,
 )
-from services.tools import atomize_task, reduce_options, estimate_real_time, detect_hyperfocus, match_task_to_energy
-from services.chat_commands import parse as parse_chat_command, execute as execute_chat_command, help as chat_help
-from services.user_settings import UserSettings
 
-
-def load_firestore_memory(query: str, timeframe: str = "yesterday") -> Dict[str, Any]:
-    """
-    Loads memory from Firestore based on a query and timeframe.
-    Retrieves past sessions and events, filtering them by the query string.
-    Args:
-        query (str): The search query to filter events.
-        timeframe (str, optional): The timeframe to search (default: "yesterday").
-    Returns:
-        Dict[str, Any]: A dictionary containing the search results or error message.
-    """
-    start, end = yesterday_range() if timeframe == "yesterday" else (None, None)
-    if not start:
-        return {"ok": False, "error": "Unsupported timeframe"}
-    sessions = get_sessions_by_date(user_id=os.getenv("USER") or "terminal_user", app_name="altered", start_iso=start, end_iso=end)
-    snippets = []
-    uid = os.getenv("USER") or "terminal_user"
-    for m in sessions:
-        sid = m.get("session_id")
-        evs = get_events_for_session(user_id=uid, app_name="altered", session_id=sid, start_iso=start, end_iso=end)
-        hits = search_events(evs, query)
-        for h in hits:
-            snippets.append({"session_id": sid, **h})
-    return {"ok": True, "results": snippets}
-
-
-def preload_firestore_memory(timeframe: str = "yesterday") -> Dict[str, Any]:
-    """
-    Preloads session metadata from Firestore for a given timeframe.
-    Args:
-        timeframe (str, optional): The timeframe to load (default: "yesterday").
-    Returns:
-        Dict[str, Any]: A dictionary containing the list of sessions.
-    """
-    start, end = yesterday_range() if timeframe == "yesterday" else (None, None)
-    uid = os.getenv("USER") or "terminal_user"
-    sessions = get_sessions_by_date(user_id=uid, app_name="altered", start_iso=start, end_iso=end)
-    return {"ok": True, "sessions": sessions}
-
+# Check if Calendar MCP is available and should be enabled for the user
+async def _is_calendar_available(user_id: str) -> bool:
+    if not user_id:
+        return False
+    try:
+        from services.user_settings import UserSettings
+        settings = UserSettings(user_id)
+        return settings.is_oauth_connected("google_calendar")
+    except Exception:
+        return False
 
 async def tool_create_event(text: str) -> Dict[str, Any]:
     """
@@ -130,10 +98,14 @@ async def tool_create_event(text: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Result of the event creation, including intent details.
     """
+    uid = current_user_id.get()
+    if not await _is_calendar_available(uid):
+         return {"ok": False, "error": "Calendar not connected. Please connect Google Calendar in Settings."}
+
     intent = create_calendar_event_intent(text, default_title="Appointment")
     if intent.get("ok") and intent.get("intent"):
         i = intent["intent"]
-        res = await _create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description"), user_id=current_user_id.get())
+        res = await _create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description"), user_id=uid)
         return {"intent": i, "result": res}
     return {"error": "intent_parse_failed", "raw": intent}
 
@@ -144,9 +116,13 @@ async def tool_list_today() -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: A dictionary containing the list of events.
     """
+    uid = current_user_id.get()
+    if not await _is_calendar_available(uid):
+         return {"ok": False, "error": "Calendar not connected. Please connect Google Calendar in Settings."}
+
     start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     end = datetime.now().replace(hour=23, minute=59, second=59, microsecond=0).isoformat()
-    return await _list_events_async("primary", start, end, user_id=current_user_id.get())
+    return await _list_events_async("primary", start, end, user_id=uid)
 
 
 async def tool_delete_event(event_id: str) -> Dict[str, Any]:
@@ -157,7 +133,10 @@ async def tool_delete_event(event_id: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Result of the deletion operation.
     """
-    return await _delete_event_async("primary", event_id, user_id=current_user_id.get())
+    uid = current_user_id.get()
+    if not await _is_calendar_available(uid):
+         return {"ok": False, "error": "Calendar not connected. Please connect Google Calendar in Settings."}
+    return await _delete_event_async("primary", event_id, user_id=uid)
 
 
 async def tool_update_event(event_id: str, start_iso: str, end_iso: str, description: str = "") -> Dict[str, Any]:
@@ -171,7 +150,11 @@ async def tool_update_event(event_id: str, start_iso: str, end_iso: str, descrip
     Returns:
         Dict[str, Any]: Result of the update operation.
     """
-    return await _update_event_async("primary", event_id, start_iso, end_iso, description, user_id=current_user_id.get())
+    uid = current_user_id.get()
+    if not await _is_calendar_available(uid):
+         return {"ok": False, "error": "Calendar not connected. Please connect Google Calendar in Settings."}
+    return await _update_event_async("primary", event_id, start_iso, end_iso, description, user_id=uid)
+
 
 
 def tool_task_atomize(description: str) -> Dict[str, Any]:
