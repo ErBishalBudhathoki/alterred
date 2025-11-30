@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:altered/l10n/app_localizations.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import 'core/routes.dart';
 import 'core/firebase_env.dart';
@@ -82,6 +83,7 @@ class NeuroPilotApp extends ConsumerWidget {
           error: DesignTokens.error,
           brightness: Brightness.light,
         ),
+        textTheme: GoogleFonts.interTextTheme(),
         scaffoldBackgroundColor: DesignTokens.background,
         appBarTheme: const AppBarTheme(
           backgroundColor:
@@ -126,6 +128,7 @@ class NeuroPilotApp extends ConsumerWidget {
           error: DesignTokens.error,
           brightness: Brightness.dark,
         ),
+        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
         scaffoldBackgroundColor: DesignTokens.backgroundDark,
         appBarTheme: const AppBarTheme(
           backgroundColor: DesignTokens.backgroundDark,

@@ -261,6 +261,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     // With reverse: true, the "bottom" is scroll offset 0.
     SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scrollController.hasClients) return;
+      if (!_scrollController.position.hasContentDimensions) return;
 
       try {
         _scrollController.animateTo(
