@@ -65,6 +65,10 @@ jobs:
             GOOGLE_OAUTH_CLIENT_SECRET=${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
             ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}
             OAUTH_REDIRECT_URI=${{ vars.OAUTH_REDIRECT_URI }}
+            CALENDAR_MCP_TOKEN=${{ secrets.CALENDAR_MCP_TOKEN }}
+            ALLOW_MCP_TOKEN_QUERY=true
+            GOOGLE_CALENDAR_MCP_TOKEN_PATH=/tmp/google-calendar-mcp-tokens.json
+            ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}
 
       - name: Verify Cloud Run service
         run: |

@@ -134,6 +134,7 @@ except ImportError:
 from services.chat_commands import parse as parse_chat_command, execute as execute_chat_command, help as chat_help
 from routers.vertex_routes import router as vertex_router
 from routers.byok_routes import router as byok_router
+import services.firebase_client as firebase_client
 
 
 app = FastAPI(title="Altered API")
@@ -206,6 +207,12 @@ async def startup_event():
     
     # Log search tool status
     print(f"\n🔍 Google Search Tool: {'✓ Available' if _SEARCH_TOOL else '✗ Not available'}")
+
+    # Initialize Firebase
+    if firebase_client.init_firebase():
+        print("\n🔥 Firebase initialized successfully")
+    else:
+        print("\n❌ Firebase initialization FAILED")
     
     print("\n" + "=" * 80)
     print("✅ Altered API Server startup complete - ready to accept connections")
