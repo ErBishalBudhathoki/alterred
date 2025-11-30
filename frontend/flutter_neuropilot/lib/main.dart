@@ -83,7 +83,15 @@ class NeuroPilotApp extends ConsumerWidget {
           error: DesignTokens.error,
           brightness: Brightness.light,
         ),
-        textTheme: GoogleFonts.interTextTheme(),
+        textTheme: GoogleFonts.interTextTheme().copyWith(
+          // Use Noto Sans as fallback for missing characters in Inter
+          bodyLarge: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+          bodyMedium: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+          bodySmall: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+          titleLarge: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+          titleMedium: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+          titleSmall: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+        ),
         scaffoldBackgroundColor: DesignTokens.background,
         appBarTheme: const AppBarTheme(
           backgroundColor:
@@ -128,7 +136,15 @@ class NeuroPilotApp extends ConsumerWidget {
           error: DesignTokens.error,
           brightness: Brightness.dark,
         ),
-        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme),
+        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme).copyWith(
+          // Use Noto Sans as fallback for missing characters in Inter
+          bodyLarge: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+          bodyMedium: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+          bodySmall: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+          titleLarge: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+          titleMedium: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+          titleSmall: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+        ),
         scaffoldBackgroundColor: DesignTokens.backgroundDark,
         appBarTheme: const AppBarTheme(
           backgroundColor: DesignTokens.backgroundDark,

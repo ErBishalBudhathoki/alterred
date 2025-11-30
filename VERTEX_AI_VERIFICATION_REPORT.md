@@ -39,12 +39,12 @@ INFO:vertex_verification:Determined Mode (with mocked credits): ClientMode.VERTE
 INFO:vertex_verification:✅ System logic correctly prioritizes Vertex AI when credits are available.
 
 INFO:vertex_verification:Attempting Test Generation (Hello World)...
-ERROR:vertex_verification:Generation Failed: 404 Publisher Model `projects/neuropilot-23fb5/locations/australia-southeast1/publishers/google/models/gemini-1.5-flash-001` was not found or your project does not have access to it.
+ERROR:vertex_verification:Generation Failed: 404 Publisher Model `projects/neuropilot-23fb5/locations/australia-southeast1/publishers/google/models/gemini-2.5-flash-001` was not found or your project does not have access to it.
 ```
 
 **Analysis of Errors:**
-1.  **Model Not Found (404)**: The model `gemini-1.5-flash-001` was not found in region `australia-southeast1` for project `neuropilot-23fb5`.
-    *   *Cause*: Either the model ID is incorrect (should be `gemini-1.5-flash`) or the model is not available in that specific region for the project.
+1.  **Model Not Found (404)**: The model `gemini-2.5-flash` was not found in region `australia-southeast1` for project `neuropilot-23fb5`.
+    *   *Cause*: Either the model ID is incorrect (should be `gemini-2.5-flash`) or the model is not available in that specific region for the project.
 2.  **Permission Denied (403)**: Earlier in the logs, `Error getting credit balance: 403 Missing or insufficient permissions` was observed.
     *   *Cause*: The local environment's Application Default Credentials do not have read/write access to the Firestore `users` collection.
 
@@ -67,8 +67,8 @@ The following files confirm the integration:
 ## 5. Recommendations
 
 1.  **Update Model ID/Region**:
-    *   Verify if `gemini-1.5-flash-001` is available in `australia-southeast1`.
-    *   Consider changing `VERTEX_AI_LOCATION` to `us-central1` or updating the model name to `gemini-1.5-flash` (or `gemini-1.5-pro`).
+    *   Verify if `gemini-2.5-flash` is available in `australia-southeast1`.
+    *   Consider changing `VERTEX_AI_LOCATION` to `us-central1` or updating the model name to `gemini-2.5-flash` (or `gemini-2.5-pro`).
 2.  **Fix Firestore Permissions**:
     *   Ensure the service account running the backend has `Cloud Datastore User` role.
 3.  **Handling Fallbacks**:

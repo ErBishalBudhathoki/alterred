@@ -73,9 +73,9 @@ async def verify_vertex_configuration():
         
         # Try multiple models and print debug info
         models_to_try = [
-            "gemini-1.5-flash-001",
-            "gemini-1.5-pro-001",
-            "gemini-1.0-pro",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.0-pro",
             "gemini-flash-latest"  # Fallback to what was in the file
         ]
         
