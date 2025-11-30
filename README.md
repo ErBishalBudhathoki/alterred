@@ -20,6 +20,20 @@ Traditional productivity tools (calendars, to-do lists) often fail this demograp
 
 **Altered** is a multi-agent AI system designed specifically as an executive function prosthetic. Unlike passive tools, Altered proactively adapts to the user's "brain state" (Focused, Scattered, Overwhelmed) and routes requests to specialized agents.
 
+### Application Overview
+- **Purpose and Goals**: Altered aims to provide neuro-inclusive support for executive function challenges, helping users manage time, tasks, decisions, and energy levels through AI-driven assistance. The goal is to reduce cognitive overload, enhance productivity, and promote well-being for neurodivergent individuals.
+- **Key Features and Functionalities**:
+  - **Task Atomization**: Breaking overwhelming projects into "micro-steps" (e.g., "Write report" → "Open document").
+  - **Time Anchoring**: Visualizing time realistically and providing "transition warnings" rather than abrupt alarms.
+  - **Decision Support**: Reducing choice overload by curating options and offering "gentle defaults."
+  - **Body Doubling**: Providing a virtual presence to assist with task initiation and maintenance.
+  - **Context Restoration**: "External Brain" agent remembers where you left off, restoring context after interruptions.
+  - **Energy Monitoring**: Detecting burnout patterns in communication and enforcing rest.
+  - Integration with Google Calendar for scheduling and event management.
+- **Target Audience and Use Cases**:
+  - **Audience**: Neurodivergent adults (e.g., those with ADHD, Autism) facing executive dysfunction.
+  - **Use Cases**: Daily task management, time-sensitive reminders, decision-making support during high-stress periods, context recovery after interruptions, and energy-aware scheduling.
+
 ### Key Features
 *   **Task Atomization**: Breaking overwhelming projects into "micro-steps" (e.g., "Write report" → "Open document").
 *   **Time Anchoring**: Visualizing time realistically and providing "transition warnings" rather than abrupt alarms.
@@ -34,7 +48,8 @@ Traditional productivity tools (calendars, to-do lists) often fail this demograp
 
 Altered utilizes a **Client-Server** architecture powered by **Google's Agent Development Kit (ADK)** and **Gemini** models.
 
-### Architectural Diagram
+### Architecture Documentation
+- **High-Level System Architecture Diagram**:
 
 ```mermaid
 graph TD
@@ -72,6 +87,32 @@ graph TD
     Storage <--> Fire
 ```
 
+- **Component-Level Diagram** (Detailed Breakdown):
+
+```mermaid
+graph TD
+    User -->|Input (Text/Voice)| FlutterUI[Flutter UI]
+    FlutterUI -->|API Calls| FastAPI[FastAPI Gateway]
+    FastAPI -->|Route Request| Coordinator[Coordinator Agent]
+    Coordinator -->|Delegate Task| SpecializedAgents[Specialized Agents]
+    SpecializedAgents -->|Query LLM| GeminiAPI[Gemini API]
+    SpecializedAgents -->|Store/Retrieve| Firestore[Firestore DB]
+    Firestore -->|Sync| SessionService[Session Service]
+    FlutterUI -->|Local State| Riverpod[Riverpod State Management]
+    Riverpod -->|Cache| LocalStorage[SharedPrefs/Local Cache]
+```
+
+- **Data Flow Descriptions**:
+  - **User Input Flow**: User interacts via Flutter UI (text or voice). Requests are sent to FastAPI, routed by the Coordinator Agent to appropriate Specialized Agents. Agents process using Gemini LLM and store results in Firestore.
+  - **Response Flow**: Agents generate responses, which are returned via FastAPI to the Flutter UI for display. Local state (Riverpod) handles UI updates and caching.
+  - **Session Management**: All interactions are tied to sessions stored in Firestore for persistence and real-time sync.
+
+- **Technology Stack Breakdown**:
+  - **Frontend**: Flutter (Dart) for cross-platform UI, Riverpod for state management.
+  - **Backend**: Python with FastAPI, Google ADK for agent orchestration, Gemini LLM for AI processing.
+  - **Database**: Firestore for real-time data sync.
+  - **Other**: Docker for containerization, GitHub Actions for CI/CD, Google Cloud Run for deployment.
+
 ### Components
 1.  **Frontend (Flutter)**: A cross-platform (Android/iOS/Web) interface focused on minimal cognitive load.
     *   **Neuro-Inclusive UI**: Features "Focus Mode," reduced animations, and calm color palettes.
@@ -92,43 +133,43 @@ graph TD
 
 ## 4. Development Setup
 
-### Prerequisites
-*   **Python 3.10+**
-*   **Flutter SDK** (Latest Stable)
-*   **Google Cloud Project** with Gemini API enabled.
-*   **Firebase Project** with Firestore enabled.
+### Setup Instructions
+- **System Requirements and Dependencies**:
+  - **Operating System**: macOS, Linux, or Windows (with WSL for best compatibility).
+  - **Tools**: Python 3.10+, Flutter SDK (latest stable), Node.js (for MCP server), Docker (optional for containerization).
+  - **Accounts**: Google Cloud Project with Gemini API enabled, Firebase Project with Firestore.
 
-### Backend Setup
+- **Detailed Step-by-Step Installation Guide**:
+  1.  **Clone the repository**:
+      ```bash
+      git clone https://github.com/BishalBudhathoki/alterred.git
+      cd altered
+      ```
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/BishalBudhathoki/alterred.git
-    cd altered
-    ```
+  2.  **Create Virtual Environment**:
+      ```bash
+      python -m venv venv
+      source venv/bin/activate  # Windows: venv\Scripts\activate
+      ```
 
-2.  **Create Virtual Environment**:
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # Windows: venv\Scripts\activate
-    ```
+  3.  **Install Dependencies**:
+      ```bash
+      pip install -r requirements.txt
+      ```
 
-3.  **Install Dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
+  4.  **Configuration Options and Environment Variables**:
+      Create a `.env` file in the root directory with the following:
+      ```env
+      GOOGLE_API_KEY=your_gemini_api_key
+      FIREBASE_CREDENTIALS=path/to/firebase-service-account.json
+      PROJECT_ID=your-project-id
+      DEFAULT_MODEL=gemini-2.5-flash  # Optional: Specify LLM model
+      ```
 
-4.  **Configuration**:
-    Create a `.env` file in the root directory:
-    ```env
-    GOOGLE_API_KEY=your_gemini_api_key
-    FIREBASE_CREDENTIALS=path/to/firebase-service-account.json
-    PROJECT_ID=your-project-id
-    ```
-
-5.  **Start Server**:
-    ```bash
-    uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
-    ```
+  5.  **Start Server**:
+      ```bash
+      uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
+      ```
 
 ### Frontend Setup
 
@@ -168,6 +209,40 @@ graph TD
     *   The **Coordinator** detects "Overwhelm" and activates the **TaskFlow Agent**.
     *   The agent breaks the task down: "Let's just open the document first."
 
+### Usage Examples
+- **Code Snippets**:
+  - **Creating a Timer (Frontend Example)**:
+    ```dart
+    void _startCountdown(String timerId, String targetIso, {int? durationSeconds}) {
+      DateTime target;
+      if (durationSeconds != null && durationSeconds > 0) {
+        target = DateTime.now().add(Duration(seconds: durationSeconds));
+      } else {
+        target = DateTime.parse(targetIso);
+      }
+      // ... (rest of timer logic)
+    }
+    ```
+  - **Backend Agent Call (Python Example)**:
+    ```python
+    async def create_countdown(text: str):
+        # Parse duration and return target time and duration_seconds
+        secs = parse_seconds(text)
+        target_time = datetime.now(timezone.utc) + timedelta(seconds=secs)
+        return {"target": target_time.isoformat(), "duration_seconds": secs}
+    ```
+
+- **Screenshots or GIFs**:
+  - Chat Interface: ![Chat Screen](/screenshots/chat_screen.png)
+  - Timer in Action: ![Timer GIF](/screenshots/timer.gif)
+  - (Note: Add actual image paths or links in your repository.)
+
+- **API Documentation** (if applicable):
+  - **Endpoint**: `/chat/respond` (POST)
+    - **Description**: Sends user message to coordinator agent.
+    - **Request Body**: `{"text": "User message", "session_id": "abc123"}`
+    - **Response**: `{"text": "AI response", "tools": []}`
+
 ### Common Use Cases
 
 | Scenario | User Input | Active Agent | System Response |
@@ -201,6 +276,23 @@ altered/
 ---
 
 ## 7. Deployment & DevOps
+
+### Deployment Guide
+- **Different Deployment Scenarios**:
+  - **Local**: Run backend with `uvicorn` and frontend with `flutter run` for development testing.
+  - **Staging**: Deploy to a staging Cloud Run instance and Firebase Hosting preview channel for QA.
+  - **Production**: Full deployment to production Cloud Run and Firebase Hosting with monitoring enabled.
+
+- **Containerization Instructions**:
+  - Use the provided `Dockerfile` to build the backend container:
+    ```bash
+    docker build -t altered-backend .
+    docker run -p 8000:8000 -e GOOGLE_API_KEY=your_key altered-backend
+    ```
+
+- **CI/CD Pipeline Integration Details**:
+  - GitHub Actions workflow (`deploy.yml`) handles automated builds and deployments on push to `main`.
+  - Includes linting, testing, and secret injection.
 
 This project uses **Google Cloud Platform (Cloud Run)** for the backend and **Firebase Hosting** for the frontend. Deployment is automated via **GitHub Actions** but can also be triggered manually using provided scripts.
 
@@ -293,5 +385,21 @@ export FIREBASE_APP_ID="your_id"
     *   **Docker Build**: Ensure `Dockerfile` is present in the root and valid.
 
 ---
+
+## 8. Related Documents
+- **Supplementary Documentation**:
+  - [API Reference](/docs/api_reference.md) - Detailed API endpoints and schemas.
+  - [Agent Development Guide](/docs/agent_guide.md) - How to create and extend agents.
+  - [UI/UX Guidelines](/docs/ui_guidelines.md) - Neuro-inclusive design principles.
+
+- **Contribution Guidelines**: See [CONTRIBUTING.md](/CONTRIBUTING.md) for how to contribute, code of conduct, and pull request process.
+
+- **License Information**: This project is licensed under the MIT License. See [LICENSE](/LICENSE) for details.
+
+- **Troubleshooting Section**:
+  - **Calendar Integration Issues**: Ensure Google OAuth credentials are set correctly in `.env`. Check logs for token errors.
+  - **Timer Failures**: Verify server-client clock sync; use UTC for all time calculations.
+  - **Backend Unreachable**: Check Cloud Run status and firewall rules.
+  - For more, see [TROUBLESHOOTING.md](/docs/troubleshooting.md).
 
 > **Warning**: This project uses Generative AI. While safeguards are in place, the system may occasionally generate inaccurate information. It is a support tool, not a replacement for professional medical advice or therapy.
