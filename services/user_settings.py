@@ -34,6 +34,7 @@ import secrets
 from cryptography.fernet import Fernet
 import google.generativeai as genai
 from firebase_admin import firestore
+from services.firebase_client import get_client
 
 
 class UserSettings:
@@ -41,7 +42,7 @@ class UserSettings:
     
     def __init__(self, user_id: str):
         self.user_id = user_id
-        self.db = firestore.client()
+        self.db = get_client()
         
         # Get encryption key from environment
         encryption_key = os.getenv("ENCRYPTION_KEY")
