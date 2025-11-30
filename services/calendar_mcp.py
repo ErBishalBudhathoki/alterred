@@ -187,9 +187,18 @@ def _get_user_credentials_file(user_id: Optional[str], account: str = "normal") 
                         json.dump(credentials, f)
                     creds_path = path
                     auth_method = "user_settings"
-                    logger.info(f"Created temp credentials file for MCP (refresh_token only): {path}")
+                    logger.info(f"Created temp credentials file for MCP (with access_token): {path}")
+        except ValueError as ve:
+            # OAuth configuration error (missing env vars)
+            logger.error(f"OAuth configuration error for user {user_id}: {ve}")
+            logger.error(f"  GOOGLE_OAUTH_CLIENT_ID present: {bool(os.getenv('GOOGLE_OAUTH_CLIENT_ID'))}")
+            logger.error(f"  GOOGLE_OAUTH_CLIENT_SECRET present: {bool(os.getenv('GOOGLE_OAUTH_CLIENT_SECRET'))}")
+            logger.error(f"  This indicates missing GitHub secrets in production deployment")
         except Exception as e:
-            logger.error(f"Error accessing user settings: {e}")
+            logger.error(f"Error accessing user settings for {user_id}: {e}")
+            logger.error(f"  Exception type: {type(e).__name__}")
+            import traceback
+            logger.error(f"  Stacktrace: {traceback.format_exc()}")
 
     # 2. Fallback to global/local credentials if not found in settings
     if not creds_path:
