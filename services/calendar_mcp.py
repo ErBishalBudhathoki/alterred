@@ -725,7 +725,11 @@ def check_mcp_ready(user_id: Optional[str] = None) -> Dict[str, Any]:
         creds_path = _get_user_credentials_file(user_id)
         if not creds_path:
             logger.warning(f"No credentials found for user {user_id}")
-            return {"ok": False, "error": "No calendar credentials available"}
+            return {
+                "ok": False, 
+                "error": "Google Calendar is not connected. Please go to Settings → Google Calendar → Connect to enable calendar features.",
+                "help": "Open the Settings page and connect your Google Calendar to use calendar integration."
+            }
         
         import os as _os
         # Build env dict - prevent fallback to global credentials

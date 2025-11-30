@@ -207,6 +207,23 @@ async def startup_event():
     
     # Log search tool status
     print(f"\n🔍 Google Search Tool: {'✓ Available' if _SEARCH_TOOL else '✗ Not available'}")
+    
+    # Log model configuration
+    default_model = os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")
+    force_vertex = os.getenv("FORCE_VERTEX_AI", "").lower() == "true"
+    vertex_region = os.getenv("VERTEX_AI_LOCATION", "NOT SET")
+    
+    print(f"\n🤖 Model Configuration:")
+    print(f"   Model: {default_model}")
+    print(f"   Force Vertex AI: {force_vertex}")
+    print(f"   Vertex AI Region: {vertex_region}")
+    
+    # Warn if using default fallback with Vertex AI
+    if default_model == "gemini-flash-latest" and force_vertex:
+        print(f"   ⚠️  WARNING: 'gemini-flash-latest' may not be available in Vertex AI {vertex_region}")
+        print(f"   💡 Recommended: Set DEFAULT_MODEL GitHub variable to 'gemini-2.0-flash' or 'gemini-2.5-flash'")
+    elif default_model == "gemini-flash-latest":
+        print(f"   ℹ️  Using Gemini API (not Vertex AI)")
 
     # Initialize Firebase
     if firebase_client.init_firebase():

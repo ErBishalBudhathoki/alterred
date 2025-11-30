@@ -130,18 +130,35 @@ async def tool_create_event(text: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Result of the event creation, including intent details.
     """
-    intent = create_calendar_event_intent(text, default_title="Appointment", user_id=current_user_id.get())
-    if intent.get("ok") and intent.get("intent"):
-        i = intent["intent"]
-        # Use _create_event_async for everything (supports recurrence now)
-        res = await _create_event_async(
-            i["summary"], i["start"], i["end"], 
-            i.get("location"), i.get("description"), 
-            user_id=current_user_id.get(),
-            recurrence=i.get("recurrence")
-        )
-        return {"intent": i, "result": res}
-    return {"error": "intent_parse_failed", "raw": intent}
+    try:
+        intent = create_calendar_event_intent(text, default_title="Appointment", user_id=current_user_id.get())
+        if intent.get("ok") and intent.get("intent"):
+            i = intent["intent"]
+            # Use _create_event_async for everything (supports recurrence now)
+            res = await _create_event_async(
+                i["summary"], i["start"], i["end"], 
+                i.get("location"), i.get("description"), 
+                user_id=current_user_id.get(),
+                recurrence=i.get("recurrence")
+            )
+            
+            # Check for calendar not connected error
+            if not res.get("ok") and "credentials" in str(res.get("error", "")).lower():
+                return {
+                    "ok": False,
+                    "error": "Google Calendar is not connected. Please go to Settings → Google Calendar → Connect to use calendar features."
+                }
+            
+            return {"intent": i, "result": res}
+        return {"error": "intent_parse_failed", "raw": intent}
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "credentials" in error_msg or "not connected" in error_msg:
+            return {
+                "ok": False,
+                "error": "Google Calendar is not connected. Please go to Settings → Google Calendar → Connect to use calendar features."
+            }
+        return {"ok": False, "error": str(e)}
 
 
 async def tool_search_events(query: str) -> Dict[str, Any]:
@@ -153,16 +170,34 @@ async def tool_search_events(query: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: List of events found.
     """
-    parsed = smart_parse_calendar_intent(query, user_id=current_user_id.get())
-    start = parsed.get("start")
-    end = parsed.get("end")
-    
-    if not (start and end):
-        now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        start = now.isoformat()
-        end = now.replace(hour=23, minute=59, second=59).isoformat()
+    try:
+        parsed = smart_parse_calendar_intent(query, user_id=current_user_id.get())
+        start = parsed.get("start")
+        end = parsed.get("end")
         
-    return await _list_events_async("primary", start, end, user_id=current_user_id.get())
+        if not (start and end):
+            now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            start = now.isoformat()
+            end = now.replace(hour=23, minute=59, second=59).isoformat()
+            
+        result = await _list_events_async("primary", start, end, user_id=current_user_id.get())
+        
+        # Check for calendar not connected error
+        if not result.get("ok") and "credentials" in str(result.get("error", "")).lower():
+            return {
+                "ok": False,
+                "error": "Google Calendar is not connected. Please go to Settings → Google Calendar → Connect to use calendar features."
+            }
+        
+        return result
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "credentials" in error_msg or "not connected" in error_msg:
+            return {
+                "ok": False,
+                "error": "Google Calendar is not connected. Please go to Settings → Google Calendar → Connect to use calendar features."
+            }
+        return {"ok": False, "error": str(e)}
 
 
 async def tool_delete_event(event_id: str) -> Dict[str, Any]:
