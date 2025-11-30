@@ -1040,7 +1040,7 @@ def mcp_calendar_analyze(request: Request, payload: Dict[str, Any] = Body(...), 
 
 
 @app.post("/mcp/calendar/v1/extract")
-def mcp_calendar_extract(request: Request, payload: Dict[str, Any] = Body(...), _: None = Depends(_mcp_calendar_guard)):
+def mcp_calendar_extract(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
     """
     Extract event details from an image (v1)
 
@@ -1049,15 +1049,16 @@ def mcp_calendar_extract(request: Request, payload: Dict[str, Any] = Body(...), 
     """
     import base64, time
     t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
     img_b64 = (payload or {}).get("imageBase64")
     mime = (payload or {}).get("mimeType", "image/png")
     img_path = (payload or {}).get("imagePath")
     try:
         if img_b64:
             data = base64.b64decode(img_b64)
-            res = extract_event_from_image(data, (payload or {}).get("userInstruction"))
+            res = extract_event_from_image(data, (payload or {}).get("userInstruction"), user_id=uid)
         elif img_path:
-            res = extract_event_from_image(img_path, (payload or {}).get("userInstruction"))
+            res = extract_event_from_image(img_path, (payload or {}).get("userInstruction"), user_id=uid)
         else:
             return JSONResponse(status_code=400, content={"ok": False, "error": "missing_image"})
         ms = int((time.time() - t0) * 1000)

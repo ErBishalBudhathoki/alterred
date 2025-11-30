@@ -356,23 +356,28 @@ async def _create_event_async(summary: str, start_iso: str, end_iso: str, locati
     return await _call_mcp("create-event", payload, user_id)
 
 
-def smart_parse_calendar_intent(text: str) -> Dict[str, Any]:
+def smart_parse_calendar_intent(text: str, user_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Uses Gemini to parse natural language calendar requests into structured data.
     """
     try:
-        # Prefer API Key client to avoid Vertex AI region/model availability issues
-        if os.getenv("GOOGLE_API_KEY"):
-            client = _GenClient(api_key=os.getenv("GOOGLE_API_KEY"))
-        else:
-            client = _genai_client()
+        api_key = None
+        if user_id:
+            try:
+                from services.user_settings import UserSettings
+                settings = UserSettings(user_id)
+                api_key = settings.get_api_key()
+            except Exception:
+                pass
+
+        client = _genai_client(api_key=api_key)
             
         now = datetime.now().isoformat()
         # Use a robust model name for Vertex AI compatibility
-        model_name = os.getenv("DEFAULT_MODEL", "gemini-pro")
+        model_name = os.getenv("DEFAULT_MODEL", "gemini-flash-latest")
         if model_name == "gemini-flash-latest" or "flash" in model_name:
-            # Fallback to gemini-pro as flash seems unavailable in this region/setup
-            model_name = "gemini-pro"
+            # Fallback to gemini-flash-latest as flash seems unavailable in this region/setup
+            model_name = "gemini-flash-latest"
             
         prompt = f"""
         You are a smart calendar assistant. Parse the following user request into a JSON object.
@@ -423,10 +428,10 @@ def smart_parse_calendar_intent(text: str) -> Dict[str, Any]:
         return {"operation": "unknown", "error": str(e)}
 
 
-def create_calendar_event_intent(user_text: str, default_title: str = "Appointment") -> Dict[str, Any]:
+def create_calendar_event_intent(user_text: str, default_title: str = "Appointment", user_id: Optional[str] = None) -> Dict[str, Any]:
     # Try smart parse first
     try:
-        parsed = smart_parse_calendar_intent(user_text)
+        parsed = smart_parse_calendar_intent(user_text, user_id=user_id)
         if parsed.get("operation") == "create":
             return {
                 "ok": True,
@@ -1290,13 +1295,16 @@ async def _call_mcp(tool: str, payload: Dict[str, Any], user_id: Optional[str] =
                 pass
 
 
-def _genai_client():
+def _genai_client(api_key: Optional[str] = None):
     """
     Initializes and returns the Gemini GenAI client.
     """
+    if api_key:
+        return _GenClient(api_key=api_key)
+
     # Prefer Vertex AI if configured
     project_id = os.getenv("VERTEX_AI_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
-    location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
+    location = os.getenv("VERTEX_AI_LOCATION", "australia-southeast1")
     
     if project_id:
         return _GenClient(vertexai=True, project=project_id, location=location)
@@ -1305,7 +1313,7 @@ def _genai_client():
     return _GenClient(api_key=os.getenv("GOOGLE_API_KEY"))
 
 
-def extract_event_from_image(image: Any, user_instruction: Optional[str] = None) -> Dict[str, Any]:
+def extract_event_from_image(image: Any, user_instruction: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
     try:
         if isinstance(image, str):
             import mimetypes, base64
@@ -1317,7 +1325,17 @@ def extract_event_from_image(image: Any, user_instruction: Optional[str] = None)
             mime = "image/png"
             data_b64 = base64.b64encode(image).decode("ascii")
         prompt = user_instruction or "Extract event details from the image and return strict JSON with keys: title, description, date, start_time, end_time, timezone, location, attendees (array of emails)."
-        client = _genai_client()
+        
+        api_key = None
+        if user_id:
+            try:
+                from services.user_settings import UserSettings
+                settings = UserSettings(user_id)
+                api_key = settings.get_api_key()
+            except Exception:
+                pass
+        
+        client = _genai_client(api_key=api_key)
         resp = client.models.generate_content(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest"), contents=[{"role": "user", "parts": [{"text": prompt}, {"inline_data": {"mime_type": mime, "data": data_b64}}]}])
         text = getattr(resp, "text", "")
         try:

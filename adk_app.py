@@ -130,7 +130,7 @@ async def tool_create_event(text: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Result of the event creation, including intent details.
     """
-    intent = create_calendar_event_intent(text, default_title="Appointment")
+    intent = create_calendar_event_intent(text, default_title="Appointment", user_id=current_user_id.get())
     if intent.get("ok") and intent.get("intent"):
         i = intent["intent"]
         # Use _create_event_async for everything (supports recurrence now)
@@ -153,7 +153,7 @@ async def tool_search_events(query: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: List of events found.
     """
-    parsed = smart_parse_calendar_intent(query)
+    parsed = smart_parse_calendar_intent(query, user_id=current_user_id.get())
     start = parsed.get("start")
     end = parsed.get("end")
     
