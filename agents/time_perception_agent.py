@@ -46,18 +46,18 @@ def create_countdown(natural_language_query: str) -> dict:
         m = re.search(r"(\d+)\s*(second|seconds|sec|s)\b", lower)
         if m:
             secs = int(m.group(1))
-            target_time = datetime.datetime.now() + datetime.timedelta(seconds=secs)
-            return {"ok": True, "target": target_time.isoformat(), "warnings": [15, 10, 5, 2]}
+            target_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=secs)
+            return {"ok": True, "target": target_time.isoformat(), "warnings": [15, 10, 5, 2], "duration_seconds": secs}
         m = re.search(r"(\d+)\s*(minute|minutes|min|m)\b", lower)
         if m:
             mins = int(m.group(1))
-            target_time = datetime.datetime.now() + datetime.timedelta(minutes=mins)
-            return {"ok": True, "target": target_time.isoformat(), "warnings": [15, 10, 5, 2]}
+            target_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=mins)
+            return {"ok": True, "target": target_time.isoformat(), "warnings": [15, 10, 5, 2], "duration_seconds": mins * 60}
         m = re.search(r"(\d+)\s*(hour|hours|hr|h)\b", lower)
         if m:
             hrs = int(m.group(1))
-            target_time = datetime.datetime.now() + datetime.timedelta(hours=hrs)
-            return {"ok": True, "target": target_time.isoformat(), "warnings": [15, 10, 5, 2]}
+            target_time = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=hrs)
+            return {"ok": True, "target": target_time.isoformat(), "warnings": [15, 10, 5, 2], "duration_seconds": hrs * 3600}
         return {"ok": False, "error": "invalid_duration"}
 
 

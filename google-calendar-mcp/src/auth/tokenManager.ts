@@ -221,8 +221,9 @@ export class TokenManager {
       if (!tokenExists) {
         const migrated = await this.migrateLegacyTokens();
         if (!migrated) {
-          process.stderr.write(`No token file found at: ${this.tokenPath}\n`);
-          return false;
+          // Do NOT return false yet! 
+          // We might have tokens injected via GOOGLE_OAUTH_CREDENTIALS in loadMultiAccountTokens()
+          // process.stderr.write(`No token file found at: ${this.tokenPath}\n`);
         }
       }
 

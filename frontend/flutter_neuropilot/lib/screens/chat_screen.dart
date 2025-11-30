@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -16,7 +15,6 @@ import '../core/components/np_chip.dart';
 import '../core/components/np_snackbar.dart';
 import '../core/components/np_progress.dart';
 import '../core/components/np_bottom_sheet.dart';
-import '../core/components/np_badge.dart';
 import '../core/components/np_badge.dart';
 import '../core/components/pulse_indicator.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -168,10 +166,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   Timer? _timerTicker;
   Timer? _testRebuilder;
   Ticker? _shortTimerTicker;
-  int _epochBaseMs = 0;
   String? _activeTimerId;
   int _pulseSpeedMs = 900;
-  Color? _pulseBaseColor;
 
   // Pagination
   int _currentPage = 0;
@@ -1130,8 +1126,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   /// Starts a countdown timer.
   ///
   /// Creates a [_TimerItem] and updates the UI periodically.
-  void _startCountdown(String timerId, String targetIso) {
-    final target = DateTime.parse(targetIso);
+  void _startCountdown(String timerId, String targetIso,
+      {int? durationSeconds}) {
+    DateTime target;
+    // Prefer local duration calculation to avoid server-client clock skew
+    if (durationSeconds != null && durationSeconds > 0) {
+      target = DateTime.now().add(Duration(seconds: durationSeconds));
+    } else {
+      target = DateTime.parse(targetIso);
+    }
     final now = DateTime.now();
     final diff = target.difference(now);
     if (diff.isNegative) return;
@@ -1185,7 +1188,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         return;
       }
       setState(() {
-        final nowTick = DateTime.now();
         final removeIds = <String>[];
         for (final t in _timers) {
           if (!t.paused && !t.completed) {
@@ -1296,10 +1298,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             final r = await api.createCountdown(text);
             final target = r['target'] as String?;
             final id = r['timer_id'] as String?;
+            final dur = r['duration_seconds'] as int?;
             if (target == null || id == null) {
               throw 'Timer creation failed.';
             }
-            _startCountdown(id, target);
+            _startCountdown(id, target, durationSeconds: dur);
             if (tc.seconds != null) {
               // No assistant echo; the timer card shows status
             }
@@ -1308,10 +1311,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               final r = await api.createCountdown(q);
               final target = r['target'] as String?;
               final id = r['timer_id'] as String?;
+              final dur = r['duration_seconds'] as int?;
               if (target == null || id == null) {
                 throw 'Timer creation failed.';
               }
-              _startCountdown(id, target);
+              _startCountdown(id, target, durationSeconds: dur);
               final tq = _parseTimerCommand(q);
               if (tq.seconds != null) {
                 // No assistant echo; the timer card shows status
@@ -1438,7 +1442,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
           _disengage('Time Agent');
           _appendAssistant(
               'Timer set. ID: ${r['timer_id']} warnings=${r['warnings']}');
-          _startCountdown(r['timer_id'], r['target']);
+          _startCountdown(r['timer_id'], r['target'],
+              durationSeconds: r['duration_seconds']);
           break;
         case Intent.reduce:
           final opts = text
@@ -2094,9 +2099,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final tsMs =
-          SchedulerBinding.instance.currentFrameTimeStamp.inMilliseconds;
-      _epochBaseMs = DateTime.now().millisecondsSinceEpoch - tsMs;
       await _loadPulsePrefs();
       await _pingBackend();
       try {
@@ -2136,10 +2138,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     final p = await SharedPreferences.getInstance();
     if (!mounted) return;
     final speed = p.getInt('pulse_speed_ms');
-    final base = p.getInt('pulse_base_color');
+    // final base = p.getInt('pulse_base_color');
     setState(() {
       if (speed != null) _pulseSpeedMs = speed;
-      _pulseBaseColor = base != null ? Color(base) : null;
+      // _pulseBaseColor = base != null ? Color(base) : null;
       _pulseCtl.duration = Duration(milliseconds: _pulseSpeedMs);
       if (!_isTestEnv) {
         _pulseCtl.repeat(reverse: true);
@@ -2200,7 +2202,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Widget _timerCard(BuildContext context, _TimerItem t) {
-    final active = _activeTimerId == t.id && !t.paused && !t.completed;
     final cs = Theme.of(context).colorScheme;
     final now = _now();
     final remLive = (t.paused || t.completed)

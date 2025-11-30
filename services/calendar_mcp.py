@@ -273,7 +273,7 @@ def _parse_time_natural(text: str) -> Optional[Dict[str, str]]:
     """
     # Use UTC to avoid server-side timezone bias (e.g. server in Sydney +11 shifting user's intended time).
     # This assumes the user's "natural language" intent maps to UTC if no timezone is provided.
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     lower = text.lower()
     day_offset = 0
     if "day after tomorrow" in lower:
@@ -381,7 +381,7 @@ def smart_parse_calendar_intent(text: str, user_id: Optional[str] = None) -> Dic
 
         client = _genai_client(api_key=api_key)
             
-        now = datetime.now().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         # Use a robust model name for Vertex AI compatibility in australia-southeast1
         model_name = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash")
         if model_name == "gemini-2.5-flash" or "flash-latest" in model_name:
