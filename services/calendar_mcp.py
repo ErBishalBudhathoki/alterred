@@ -373,11 +373,11 @@ def smart_parse_calendar_intent(text: str, user_id: Optional[str] = None) -> Dic
         client = _genai_client(api_key=api_key)
             
         now = datetime.now().isoformat()
-        # Use a robust model name for Vertex AI compatibility
-        model_name = os.getenv("DEFAULT_MODEL", "gemini-flash-latest")
-        if model_name == "gemini-flash-latest" or "flash" in model_name:
-            # Fallback to gemini-flash-latest as flash seems unavailable in this region/setup
-            model_name = "gemini-flash-latest"
+        # Use a robust model name for Vertex AI compatibility in australia-southeast1
+        model_name = os.getenv("DEFAULT_MODEL", "gemini-2.5-flash")
+        if model_name == "gemini-2.5-flash" or "flash-latest" in model_name:
+            # Use gemini-2.5-flash which is available in australia-southeast1
+            model_name = "gemini-2.5-flash"
             
         prompt = f"""
         You are a smart calendar assistant. Parse the following user request into a JSON object.
@@ -1336,7 +1336,7 @@ def extract_event_from_image(image: Any, user_instruction: Optional[str] = None,
                 pass
         
         client = _genai_client(api_key=api_key)
-        resp = client.models.generate_content(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest"), contents=[{"role": "user", "parts": [{"text": prompt}, {"inline_data": {"mime_type": mime, "data": data_b64}}]}])
+        resp = client.models.generate_content(model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash"), contents=[{"role": "user", "parts": [{"text": prompt}, {"inline_data": {"mime_type": mime, "data": data_b64}}]}])
         text = getattr(resp, "text", "")
         try:
             parsed = json.loads(text)
