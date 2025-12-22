@@ -2,16 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:altered/l10n/app_localizations.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import 'core/routes.dart';
 import 'core/firebase_env.dart';
 import 'core/design_tokens.dart';
+import 'core/observability/observability_manager.dart';
 import 'state/session_state.dart';
 import 'state/auth_state.dart';
 import 'screens/splash_screen.dart';
-import 'screens/chat_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/main_screen.dart';
 
 /// Entry point of the application.
 ///
@@ -28,12 +28,31 @@ import 'screens/login_screen.dart';
 /// Behavioral Specifications:
 /// - Shows `SplashScreen` while checking auth status.
 /// - Redirects to `LoginScreen` if unauthenticated.
-/// - Redirects to `ChatScreen` if authenticated.
+/// - Redirects to `MainScreen` (was ChatScreen) if authenticated.
 void main() async {
   // Force rebuild: v1.1
   WidgetsFlutterBinding.ensureInitialized();
   await initFirebase();
+
+  // Initialize observability system
+  await ObservabilityManager.instance.initialize();
+
+  // Initialize Notion services
+  await _initializeNotionServices();
+
   runApp(const ProviderScope(child: NeuroPilotApp()));
+}
+
+/// Initialize Notion services for MCP integration
+Future<void> _initializeNotionServices() async {
+  try {
+    // Services will be initialized when first accessed via providers
+    // This ensures proper dependency injection and lifecycle management
+    // print('[Notion] Services ready for initialization'); // Unused
+  } catch (e) {
+    // print('[Notion] Initialization warning: $e'); // Unused
+    // Non-blocking - Notion integration is optional
+  }
 }
 
 /// AuthGate handles initial routing without showing splash on refresh
@@ -47,8 +66,8 @@ class _AuthGate extends ConsumerWidget {
     return navAsync.when(
       data: (route) {
         // Directly show the target screen without splash
-        if (route == '/chat') {
-          return const ChatScreen();
+        if (route == '/chat' || route == '/') {
+          return const MainScreen();
         } else {
           return const LoginScreen();
         }
@@ -67,10 +86,27 @@ class NeuroPilotApp extends ConsumerWidget {
     // Note: authUserProvider is accessed in SplashScreen after Firebase is initialized
     final locale = ref.watch(localeProvider);
     final saved = ref.watch(savedLocaleProvider).value;
+
+    // Trigger location detection
+    ref.watch(locationInitializerProvider);
+
     return MaterialApp(
       title: 'Altered',
+      debugShowCheckedModeBanner: false,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en'), // English
+        Locale('hi'), // Hindi
+      ],
+      locale: saved ?? locale,
       theme: ThemeData(
         useMaterial3: true,
+        fontFamily: 'NotoSans',
         colorScheme: ColorScheme.fromSeed(
           seedColor: DesignTokens.primarySeed,
           primary: DesignTokens.primary,
@@ -83,14 +119,31 @@ class NeuroPilotApp extends ConsumerWidget {
           error: DesignTokens.error,
           brightness: Brightness.light,
         ),
-        textTheme: GoogleFonts.interTextTheme().copyWith(
-          // Use Noto Sans as fallback for missing characters in Inter
-          bodyLarge: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
-          bodyMedium: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
-          bodySmall: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
-          titleLarge: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
-          titleMedium: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
-          titleSmall: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+        textTheme: const TextTheme(
+          bodyLarge: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
+          bodyMedium: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
+          bodySmall: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
+          titleLarge: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
+          titleMedium: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
+          titleSmall: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
         ),
         scaffoldBackgroundColor: DesignTokens.background,
         appBarTheme: const AppBarTheme(
@@ -124,6 +177,7 @@ class NeuroPilotApp extends ConsumerWidget {
       ),
       darkTheme: ThemeData(
         useMaterial3: true,
+        fontFamily: 'NotoSans',
         colorScheme: ColorScheme.fromSeed(
           seedColor: DesignTokens.primarySeed,
           primary: DesignTokens.primaryDark,
@@ -136,14 +190,31 @@ class NeuroPilotApp extends ConsumerWidget {
           error: DesignTokens.error,
           brightness: Brightness.dark,
         ),
-        textTheme: GoogleFonts.interTextTheme(ThemeData.dark().textTheme).copyWith(
-          // Use Noto Sans as fallback for missing characters in Inter
-          bodyLarge: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
-          bodyMedium: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
-          bodySmall: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
-          titleLarge: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
-          titleMedium: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
-          titleSmall: const TextStyle(fontFamily: 'NotoSans', fontFamilyFallback: ['Inter']),
+        textTheme: const TextTheme(
+          bodyLarge: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
+          bodyMedium: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
+          bodySmall: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
+          titleLarge: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
+          titleMedium: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
+          titleSmall: TextStyle(
+            fontFamily: 'NotoSans',
+            fontFamilyFallback: ['NotoSansDevanagari', 'NotoSansDevanagariUI'],
+          ),
         ),
         scaffoldBackgroundColor: DesignTokens.backgroundDark,
         appBarTheme: const AppBarTheme(
@@ -174,14 +245,6 @@ class NeuroPilotApp extends ConsumerWidget {
           ),
         ),
       ),
-      locale: locale ?? saved,
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-      ],
-      supportedLocales: AppLocalizations.supportedLocales,
       home: const _AuthGate(),
       routes: Routes.map,
     );

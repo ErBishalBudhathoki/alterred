@@ -12,7 +12,6 @@ Design Decisions:
 - Updates are partial to avoid overwriting other user settings.
 - Simple heuristic algorithms for peak hour detection (for now).
 """
-import os
 from typing import Dict, Any
 
 from services.firebase_client import get_client
@@ -80,4 +79,12 @@ def update_peak_hours(user_id: str, energy_logs: list[int]) -> None:
     data = doc.to_dict() or {}
     bank = data.get("memory_bank", {})
     bank["peak_hours"] = peaks
+    ref.update({"memory_bank": bank})
+
+def update_energy_depletion_patterns(user_id: str, patterns: Dict[str, Any]) -> None:
+    ref = _user_doc(user_id)
+    doc = ref.get()
+    data = doc.to_dict() or {}
+    bank = data.get("memory_bank", {})
+    bank["energy_depletion_patterns"] = patterns
     ref.update({"memory_bank": bank})

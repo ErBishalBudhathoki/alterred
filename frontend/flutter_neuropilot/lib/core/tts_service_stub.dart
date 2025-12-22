@@ -17,6 +17,12 @@ import 'tts_service.dart';
 class _StubTts implements TtsService {
   final _speakingCtl = StreamController<bool>.broadcast();
   double _volume = 1.0;
+  
+  @override
+  void Function(String text)? onSpeakStart;
+  
+  @override
+  void Function()? onSpeakEnd;
 
   @override
   bool get supported => false;
@@ -32,6 +38,9 @@ class _StubTts implements TtsService {
 
   @override
   Future<void> stop() async {}
+
+  @override
+  void setOptions({String? voice, String? quality}) {}
 
   @override
   Stream<bool> get speaking => _speakingCtl.stream;

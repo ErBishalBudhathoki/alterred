@@ -228,6 +228,9 @@ class ChatStore {
                   content: (e['content'] as String?) ?? '',
                   time: DateTime.tryParse((e['time'] as String?) ?? '') ??
                       DateTime.now(),
+                  metadata: e['metadata'] != null
+                      ? Map<String, dynamic>.from(e['metadata'] as Map)
+                      : null,
                 ))
             .toList();
     _cache[id] = all;
@@ -249,7 +252,8 @@ class ChatStore {
     list.add({
       'role': m.role,
       'content': m.content,
-      'time': m.time.toIso8601String()
+      'time': m.time.toIso8601String(),
+      'metadata': m.metadata,
     });
     await prefs.setString('chat_history_$id', jsonEncode(list));
     final cache = _cache[id] ?? <ChatMessage>[];
@@ -295,6 +299,7 @@ class ChatStore {
           'role': m.role,
           'content': m.content,
           'time': m.time.toIso8601String(),
+          'metadata': m.metadata,
         });
       }
     } catch (e) {

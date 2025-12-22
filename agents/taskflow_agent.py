@@ -16,13 +16,13 @@ Behavioral Specifications:
 - Breaks tasks down recursively if needed.
 - Monitors user activity during body doubling and intervenes gently if silence persists.
 """
+from typing import List, Dict, Any, Optional
 import os
 from google.adk.agents import LlmAgent
-from google.adk.models.google_llm import Gemini
-from services.tools import atomize_task
-
-
-import random
+from agents.adk_model import get_adk_model
+from agents.tools import atomize_task
+from agents.time_perception_agent import create_countdown
+from agents.common import auto_compact_callback
 
 def dopamine_reframe(task: str) -> dict:
     """
@@ -170,7 +170,7 @@ def just_in_time_prompt(activity: str, duration_seconds: int = 0) -> dict:
     }
 
 
-def schedule_tasks(items: list, energy: int, deadline_weights: list | None = None) -> dict:
+def schedule_tasks(items: list, energy: int, deadline_weights: Optional[list] = None) -> dict:
     """
     Schedules tasks based on energy levels and deadlines.
 
@@ -195,8 +195,24 @@ def schedule_tasks(items: list, energy: int, deadline_weights: list | None = Non
 
 
 taskflow_agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "models/gemini-flash-latest")),
+    model=get_adk_model(),
     name="taskflow_agent",
-    instruction="Break tasks into micro-steps, provide body doubling, reframe for dopamine, and schedule by energy/deadline.",
-    tools=[atomize_task, dopamine_reframe, body_double, just_in_time_prompt, schedule_tasks, body_double_checkin],
+    description="Taskflow delegation agent",
+    instruction=(
+        "You are the Taskflow Agent. Your job is to make tasks easier. "
+        "Break tasks into micro-steps, provide body doubling nudges. "
+        "When using atomize_task or dopamine_reframe, do NOT list the steps/hacks in text. Just summarize. "
+        "IMPORTANT: If the user selects a dopamine hack (e.g., 'I choose: Speed Run', 'I choose: Roleplay'), "
+        "you MUST IMMEDIATELY respond with a specific, immersive implementation of that hack for their task. "
+        "If the user says 'I choose: ...', ASSUME they are referring to the task discussed just before. "
+        "Do not ask 'What task?'. Instead, use the conversation history to infer the task (e.g., 'taxes', 'cleaning'). "
+        "1. For 'Speed Run': Use the create_countdown tool for 10 minutes and say 'Speed run starts NOW! Go!'. "
+        "2. For 'Roleplay': Write a short (2 sentence) immersive scenario related to their task (e.g., 'Agent, the bomb is ticking...'). "
+        "3. For 'Side Quest': Describe the loot/XP they will earn. "
+        "4. For others: Give a specific, actionable starting instruction. "
+        "ALWAYS link the hack back to their specific task (e.g., taxes, cleaning). "
+        "Do NOT just say 'Okay' or ask follow-up questions. ACT immediately."
+    ),
+    tools=[atomize_task, dopamine_reframe, body_double, body_double_checkin, create_countdown, just_in_time_prompt, schedule_tasks],
+    after_agent_callback=auto_compact_callback,
 )

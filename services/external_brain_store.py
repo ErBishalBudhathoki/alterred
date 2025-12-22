@@ -43,7 +43,7 @@ def store_voice_task(title: str, status: str, transcript: str) -> str:
         str: The ID of the created document.
     """
     uid = os.getenv("USER") or "terminal_user"
-    created = datetime.utcnow().isoformat()
+    created = datetime.now().isoformat()
     ref = _root(uid).document()
     ref.set({
         "title": title,
@@ -68,7 +68,7 @@ def store_context_snapshot(task_id: str, snapshot: Dict[str, Any]):
     uid = os.getenv("USER") or "terminal_user"
     _root(uid).document(task_id).collection("snapshots").add({
         "snapshot": snapshot,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now().isoformat(),
     })
 
 

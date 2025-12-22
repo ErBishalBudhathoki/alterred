@@ -27,7 +27,7 @@ import os
 os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = '1'
 
 from typing import Dict, Any, Optional
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -102,7 +102,7 @@ class GoogleOAuthHandler:
             Dict containing:
                 - ok: Success status
                 - access_token: OAuth access token
-                - refresh_token: OAuth refresh token  
+                - refresh_token: OAuth refresh token
                 - expires_at: ISO format expiry timestamp
                 - scopes: List of granted scopes
         """
@@ -131,7 +131,7 @@ class GoogleOAuthHandler:
             credentials = flow.credentials
             
             # Calculate expiry timestamp
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=credentials.expiry.timestamp() - datetime.now(timezone.utc).timestamp() if credentials.expiry else 3600)
+            expires_at = datetime.now() + timedelta(seconds=credentials.expiry.timestamp() - datetime.now().timestamp() if credentials.expiry else 3600)
             
             return {
                 "ok": True,
@@ -171,7 +171,7 @@ class GoogleOAuthHandler:
             credentials.refresh(request)
             
             # Calculate new expiry
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=3600)  # Usually 1 hour
+            expires_at = datetime.now() + timedelta(seconds=3600)  # Usually 1 hour
             
             return {
                 "ok": True,

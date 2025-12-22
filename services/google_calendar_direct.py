@@ -7,7 +7,7 @@ bypassing the MCP NPM package which has OAuth compatibility issues.
 """
 
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -31,13 +31,13 @@ def _get_calendar_service(user_id: str):
     # Check if token needs refresh
     try:
         expires_at = datetime.fromisoformat(tokens["expires_at"])
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at.tzinfo is not None:
+            expires_at = expires_at.astimezone().replace(tzinfo=None)
     except Exception:
-        expires_at = datetime.now(timezone.utc)
+        expires_at = datetime.now()
     
     # Refresh if expired or expiring soon
-    if datetime.now(timezone.utc) >= (expires_at - timedelta(minutes=5)):
+    if datetime.now() >= (expires_at - timedelta(minutes=5)):
         logger.info(f"Refreshing calendar token for user {user_id}")
         oauth_handler = GoogleOAuthHandler()
         refresh_result = oauth_handler.refresh_access_token(tokens["refresh_token"])
@@ -113,7 +113,7 @@ def list_events(user_id: str, start_time: str, end_time: str, calendar_id: str =
         raise
 
 
-def create_event(user_id: str, summary: str, start_time: str, end_time: str, 
+def create_event(user_id: str, summary: str, start_time: str, end_time: str,
                 description: Optional[str] = None, location: Optional[str] = None,
                 calendar_id: str = "primary") -> Dict[str, Any]:
     """
@@ -136,8 +136,8 @@ def create_event(user_id: str, summary: str, start_time: str, end_time: str,
         
         event = {
             'summary': summary,
-            'start': {'dateTime': start_time, 'timeZone': 'UTC'},
-            'end': {'dateTime': end_time, 'timeZone': 'UTC'},
+            'start': {'dateTime': start_time},
+            'end': {'dateTime': end_time},
         }
         
         if description:
@@ -191,3 +191,131 @@ def list_calendars(user_id: str) -> List[Dict[str, Any]]:
     except HttpError as e:
         logger.error(f"Google Calendar API error: {e}")
         raise
+
+
+def list_events_all_calendars(
+    user_id: str, 
+    start_time: str, 
+    end_time: str, 
+    max_results_per_calendar: int = 50,
+    include_declined: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    List calendar events from ALL visible/selected calendars within a time range.
+    
+    This function queries all calendars the user can see (including subscribed calendars
+    from the "Other calendars" section), and merges/sorts the events by start time.
+    
+    Args:
+        user_id: User ID
+        start_time: ISO format start time
+        end_time: ISO format end time
+        max_results_per_calendar: Maximum number of events to return per calendar
+        include_declined: Whether to include events the user has declined
+    
+    Returns:
+        List of event dictionaries from all visible calendars, sorted by start time
+    """
+    try:
+        service = _get_calendar_service(user_id)
+        
+        # Get all visible calendars
+        calendars = list_calendars(user_id)
+        
+        # Log all calendars found for debugging
+        logger.info(f"Found {len(calendars)} total calendars for user {user_id}")
+        for cal in calendars:
+            cal_id = cal.get('id', 'unknown')
+            cal_summary = cal.get('summary', 'Untitled')
+            cal_selected = cal.get('selected', 'unspecified')
+            cal_access = cal.get('accessRole', 'unknown')
+            logger.debug(f"  Calendar: '{cal_summary}' (id={cal_id[:30]}..., selected={cal_selected}, accessRole={cal_access})")
+        
+        # Include ALL calendars with any access role (owner, writer, reader, freeBusyReader)
+        # This includes:
+        # - "My calendars" section: typically owner or writer
+        # - "Other calendars" section: typically reader or freeBusyReader (subscribed calendars)
+        # We explicitly include calendars regardless of 'selected' status to capture all subscribed calendars
+        accessible_calendars = [
+            cal for cal in calendars 
+            if cal.get('accessRole') in ('owner', 'writer', 'reader', 'freeBusyReader')
+        ]
+        
+        logger.info(f"Querying {len(accessible_calendars)} accessible calendars for user {user_id}")
+        
+        # Normalize datetime format to RFC3339 (required by Google Calendar API)
+        # If timezone is missing, append 'Z' for UTC
+        def normalize_datetime(dt_str: str) -> str:
+            """Ensure datetime string has timezone suffix for RFC3339 compliance."""
+            if not dt_str:
+                return dt_str
+            # Already has timezone info (contains + or Z at the end)
+            if '+' in dt_str or dt_str.endswith('Z') or '-' in dt_str[10:]:
+                return dt_str
+            # No timezone - append 'Z' for UTC
+            return dt_str + 'Z'
+        
+        start_time_normalized = normalize_datetime(start_time)
+        end_time_normalized = normalize_datetime(end_time)
+        logger.debug(f"Normalized time range: {start_time_normalized} to {end_time_normalized}")
+        
+        all_events = []
+        
+        for cal in accessible_calendars:
+            calendar_id = cal.get('id', 'primary')
+            calendar_summary = cal.get('summary', 'Unknown')
+            
+            try:
+                events_result = service.events().list(
+                    calendarId=calendar_id,
+                    timeMin=start_time_normalized,
+                    timeMax=end_time_normalized,
+                    maxResults=max_results_per_calendar,
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+                
+                events = events_result.get('items', [])
+                
+                # Add calendar source info to each event for display
+                for event in events:
+                    event['_calendarId'] = calendar_id
+                    event['_calendarSummary'] = calendar_summary
+                    
+                    # Filter out declined events if requested
+                    if not include_declined:
+                        attendees = event.get('attendees', [])
+                        user_response = None
+                        for attendee in attendees:
+                            if attendee.get('self'):
+                                user_response = attendee.get('responseStatus')
+                                break
+                        if user_response == 'declined':
+                            continue
+                    
+                    all_events.append(event)
+                
+                logger.debug(f"Retrieved {len(events)} events from calendar '{calendar_summary}' ({calendar_id})")
+                
+            except HttpError as e:
+                # Log but continue with other calendars if one fails
+                logger.warning(f"Failed to query calendar '{calendar_summary}' ({calendar_id}): {e}")
+                continue
+        
+        # Sort all events by start time
+        def get_start_time(event: Dict[str, Any]) -> str:
+            start = event.get('start', {})
+            return start.get('dateTime') or start.get('date') or ''
+        
+        all_events.sort(key=get_start_time)
+        
+        logger.info(f"Retrieved {len(all_events)} total events from {len(accessible_calendars)} calendars for user {user_id}")
+        return all_events
+        
+    except HttpError as e:
+        logger.error(f"Google Calendar API error: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Error listing events from all calendars: {e}")
+        raise
+

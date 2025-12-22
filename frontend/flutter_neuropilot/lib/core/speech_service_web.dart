@@ -12,6 +12,12 @@ class _WebSpeech implements SpeechService {
       StreamController<String>.broadcast();
   final StreamController<double> _levelCtl =
       StreamController<double>.broadcast();
+  
+  /// Whether hardware AEC is enabled (via getUserMedia constraints)
+  bool _aecEnabled = false;
+  
+  /// MediaStream for AEC-enabled audio capture
+  JSObject? _mediaStream;
 
   @override
   bool get supported {
@@ -21,14 +27,70 @@ class _WebSpeech implements SpeechService {
         globalContext.hasProperty('SpeechRecognition'.toJS).toDart;
     return hasWebkit || hasStandard;
   }
+  
+  /// Initializes WebRTC-based echo cancellation by requesting microphone
+  /// with AEC constraints. This primes the browser's audio pipeline.
+  Future<void> _initializeAEC() async {
+    if (_aecEnabled) return;
+    
+    try {
+      final navigator = globalContext.getProperty<JSObject>('navigator'.toJS);
+      final mediaDevices = navigator.getProperty<JSObject>('mediaDevices'.toJS);
+      
+      // Request microphone with WebRTC echo cancellation constraints
+      final constraints = {
+        'audio': {
+          'echoCancellation': true,
+          'noiseSuppression': true,
+          'autoGainControl': true,
+        }
+      }.jsify();
+      
+      final promise = mediaDevices.callMethod<JSPromise>('getUserMedia'.toJS, constraints);
+      final stream = await promise.toDart;
+      
+      if (stream != null) {
+        _mediaStream = stream as JSObject;
+        _aecEnabled = true;
+        debugPrint('[WebSpeech] AEC initialized via getUserMedia constraints');
+      }
+    } catch (e) {
+      debugPrint('[WebSpeech] AEC initialization failed (non-critical): $e');
+      // Non-critical - speech recognition will still work without hardware AEC
+    }
+  }
+  
+  /// Releases the AEC media stream
+  void _releaseAEC() {
+    if (_mediaStream != null) {
+      try {
+        final tracks = _mediaStream!.callMethod<JSArray>('getTracks'.toJS);
+        final length = (tracks.getProperty<JSAny>('length'.toJS).dartify() as num).toInt();
+        for (var i = 0; i < length; i++) {
+          final track = tracks.getProperty<JSObject>(i.toJS);
+          track.callMethod('stop'.toJS);
+        }
+        _mediaStream = null;
+        _aecEnabled = false;
+        debugPrint('[WebSpeech] AEC media stream released');
+      } catch (e) {
+        debugPrint('[WebSpeech] Error releasing AEC stream: $e');
+      }
+    }
+  }
 
   /// Starts speech recognition using the Web Speech API.
   ///
   /// Uses either `SpeechRecognition` or `webkitSpeechRecognition`.
   /// Sets `continuous=false` and `interimResults=true` for dictation mode.
+  /// Initializes WebRTC AEC before starting recognition.
   @override
   Future<String?> startOnce() async {
     if (!supported) return null;
+    
+    // Initialize WebRTC-based echo cancellation
+    await _initializeAEC();
+    
     final ctorName =
         globalContext.hasProperty('webkitSpeechRecognition'.toJS).toDart
             ? 'webkitSpeechRecognition'
@@ -38,7 +100,7 @@ class _WebSpeech implements SpeechService {
     _rec!.setProperty('continuous'.toJS, false.toJS);
     _rec!.setProperty('interimResults'.toJS, true.toJS);
     debugPrint(
-        'WebSpeech: using constructor $ctorName, continuous=false, interimResults=true');
+        '[WebSpeech] using constructor $ctorName, continuous=false, interimResults=true, AEC=$_aecEnabled');
     try {
       final nav = globalContext.getProperty<JSObject>('navigator'.toJS);
       final hasLang = nav.hasProperty('language'.toJS).toDart;
@@ -166,11 +228,14 @@ class _WebSpeech implements SpeechService {
     _running = false;
     try {
       if (_rec != null) {
-        debugPrint('WebSpeech: manual stop');
+        debugPrint('[WebSpeech] manual stop');
         _rec!.callMethod('stop'.toJS);
       }
     } catch (_) {}
     _levelCtl.add(0.0);
+    
+    // Release AEC resources when stopping
+    _releaseAEC();
   }
 
   @override

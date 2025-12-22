@@ -23,9 +23,16 @@ class ChatMessage {
   /// The timestamp when the message was created.
   final DateTime time;
 
+  /// Optional metadata for rich UI rendering (e.g., calendar events).
+  final Map<String, dynamic>? metadata;
+
   /// Creates a new [ChatMessage].
   ///
   /// If [time] is omitted, it defaults to the current time.
-  ChatMessage({required this.role, required this.content, DateTime? time})
-      : time = time ?? DateTime.now();
+  ChatMessage({
+    required this.role,
+    required this.content,
+    DateTime? time,
+    this.metadata,
+  }) : time = time ?? DateTime.now();
 }

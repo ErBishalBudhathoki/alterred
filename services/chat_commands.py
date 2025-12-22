@@ -1,18 +1,15 @@
-import os
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Tuple
 from datetime import datetime, timedelta
 
-from services.calendar_mcp import check_mcp_ready
 from services.metrics_service import compute_daily_overview
-from services.history_service import yesterday_range, get_sessions_by_date, get_events_for_session
+from services.history_service import yesterday_range, get_sessions_by_date
 from services.memory_bank import FirestoreMemoryBank
 from sessions.firestore_session_storage import FirestoreSessionStorage
 from services.compaction_service import compact_session
-from services.timer_store import store_countdown
 from services.external_brain_store import store_voice_task, get_context
 from services.a2a_service import connect_partner, post_update
-from services.slack_mcp import check_ready as slack_check_ready, list_channels as slack_list_channels, post_message as slack_post_message
-from services.jira_mcp import check_ready as jira_check_ready, list_projects as jira_list_projects, create_issue as jira_create_issue, list_issues as jira_list_issues
+from services.slack_mcp import list_channels as slack_list_channels, post_message as slack_post_message
+from services.jira_mcp import list_projects as jira_list_projects, create_issue as jira_create_issue, list_issues as jira_list_issues
 from services.ambient_sound import list_tracks as sound_list_tracks, start_track as sound_start_track
 
 
@@ -121,18 +118,26 @@ def parse(text: str) -> Tuple[str, List[str]]:
     return ("unknown", [])
 
 
-def execute(user_id: str, session_id: str, command: str, args: List[str]) -> Dict[str, Any]:
+def execute(user_id: str, session_id: str, command: str, args: List[str], tz_name: str | None = None) -> Dict[str, Any]:
     memory = FirestoreMemoryBank(user_id)
     storage = FirestoreSessionStorage()
     try:
         if command == "help":
             return help()
         if command == "yesterday_conversations":
-            start, end = yesterday_range()
+            start, end = yesterday_range(tz_name)
             sessions = get_sessions_by_date(user_id, "neuropilot", start, end)
             return {"ok": True, "sessions": sessions, "suggestions": ["Resume session <id>"]}
         if command == "yesterday_tasks":
-            y = (datetime.utcnow().date() - timedelta(days=1)).isoformat()
+            try:
+                if tz_name:
+                    from zoneinfo import ZoneInfo
+                    now = datetime.now(ZoneInfo(tz_name)).replace(microsecond=0)
+                else:
+                    now = datetime.now().astimezone().replace(microsecond=0)
+            except Exception:
+                now = datetime.now().astimezone().replace(microsecond=0)
+            y = (now.date() - timedelta(days=1)).isoformat()
             logs = memory.get_tasks_by_date(y)
             return {"ok": True, "tasks": logs}
         if command == "resume_session" and args:
@@ -144,7 +149,15 @@ def execute(user_id: str, session_id: str, command: str, args: List[str]) -> Dic
             res = compact_session(user_id, "neuropilot", sid)
             return {"ok": res.get("ok", False), "summary_len": len(res.get("summary", ""))}
         if command == "metrics_overview":
-            dk = datetime.utcnow().date().isoformat()
+            try:
+                if tz_name:
+                    from zoneinfo import ZoneInfo
+                    now = datetime.now(ZoneInfo(tz_name)).replace(microsecond=0)
+                else:
+                    now = datetime.now().astimezone().replace(microsecond=0)
+            except Exception:
+                now = datetime.now().astimezone().replace(microsecond=0)
+            dk = now.date().isoformat()
             return {"ok": True, "overview": compute_daily_overview(user_id, dk)}
         if command == "slack_channels":
             import asyncio
@@ -182,7 +195,15 @@ def execute(user_id: str, session_id: str, command: str, args: List[str]) -> Dic
             return post_update(args[0], {"message": args[1]})
         if command == "cleanup_expired":
             delete = args and args[0] == "True"
-            marked = storage.expire_sessions(datetime.utcnow())
+            try:
+                if tz_name:
+                    from zoneinfo import ZoneInfo
+                    now = datetime.now(ZoneInfo(tz_name))
+                else:
+                    now = datetime.now().astimezone()
+            except Exception:
+                now = datetime.now().astimezone()
+            marked = storage.expire_sessions(now)
             deleted = storage.delete_expired() if delete else 0
             return {"ok": True, "expired_marked": marked, "deleted": deleted}
         return {"ok": False, "error": "unknown_command", "suggestions": _suggestions()}

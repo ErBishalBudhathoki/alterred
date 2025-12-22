@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'character_avatar.dart';
 
 /// A component to display user avatars or initials.
 ///
 /// Implementation Details:
+/// - Shows selected character style if provided.
 /// - Shows network image if [imageUrl] is provided.
 /// - Fallback to initials derived from [name] if image is missing.
 /// - Uses [ClipRRect] for circular masking.
@@ -17,8 +19,15 @@ import 'package:flutter/material.dart';
 class NpAvatar extends StatelessWidget {
   final String? name;
   final String? imageUrl;
+  final String? characterStyle;
   final double size;
-  const NpAvatar({super.key, this.name, this.imageUrl, this.size = 40});
+  const NpAvatar({
+    super.key,
+    this.name,
+    this.imageUrl,
+    this.characterStyle,
+    this.size = 40,
+  });
 
   String _initials(String? n) {
     if (n == null || n.trim().isEmpty) return '?';
@@ -30,6 +39,24 @@ class NpAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 1. Check for Character Style Preference
+    if (characterStyle != null && characterStyle!.isNotEmpty) {
+      try {
+        final styleEnum = CharacterStyle.values.firstWhere(
+          (e) => e.toString().split('.').last == characterStyle,
+          orElse: () => CharacterStyle.tech,
+        );
+        return CharacterAvatar(
+          style: styleEnum,
+          size: size,
+          primaryColor: Theme.of(context).colorScheme.primary,
+          secondaryColor: Theme.of(context).colorScheme.surface,
+        );
+      } catch (_) {
+        // Fallback if style string is invalid
+      }
+    }
+
     final bg = Theme.of(context).colorScheme.primary.withValues(alpha: 0.15);
     final fg = Theme.of(context).colorScheme.onSurface;
     final radius = BorderRadius.circular(size / 2);

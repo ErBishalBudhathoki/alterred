@@ -25,7 +25,12 @@ class NpCheckbox extends StatelessWidget {
       child: Checkbox(
         value: value,
         onChanged: onChanged,
-        activeColor: cs.primary,
+        fillColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return cs.primary;
+          }
+          return null;
+        }),
       ),
     );
   }

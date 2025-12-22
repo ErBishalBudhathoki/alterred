@@ -20,18 +20,22 @@ class NpTextField extends StatelessWidget {
   final TextInputType? keyboardType;
   final ValueChanged<String>? onSubmitted;
   final TextInputAction? textInputAction;
+  final FocusNode? focusNode;
+
   const NpTextField(
       {super.key,
       required this.controller,
       required this.label,
       this.keyboardType,
       this.onSubmitted,
-      this.textInputAction});
+      this.textInputAction,
+      this.focusNode});
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      focusNode: focusNode,
       keyboardType: keyboardType,
       onSubmitted: onSubmitted,
       textInputAction: textInputAction,

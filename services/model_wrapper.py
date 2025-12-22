@@ -6,12 +6,10 @@ Wrapper for ADK models with robust error handling, logging, and monitoring.
 
 import time
 import logging
-import os
-from typing import Dict, Any, Optional, AsyncIterator, Union, List
+from typing import Dict, Any, Optional, AsyncIterator
 from dataclasses import dataclass
-from datetime import datetime
 
-from services.vertex_ai_client import VertexAIClient, ClientMode
+from services.vertex_ai_client import VertexAIClient
 from services.metrics_service import record_model_usage
 
 # Configure logging
@@ -98,12 +96,11 @@ class ADKModelWrapper:
         Stream content with monitoring (metrics logged at end of stream).
         """
         start_time = time.time()
-        mode_str = "unknown"
+        # No need to track mode string in streaming path
         error_msg = None
         
         try:
-            mode_enum = self.client.determine_mode()
-            mode_str = mode_enum.value
+            self.client.determine_mode()
             
             async for chunk in self.client.generate_content_async(
                 prompt=input_data.prompt,

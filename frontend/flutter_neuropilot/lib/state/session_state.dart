@@ -1,21 +1,23 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/material.dart';
+import 'dart:ui' as ui;
 import '../services/api_client.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../core/chat_message.dart';
 import 'dart:math';
 import 'dart:convert';
+import '../services/location_service.dart';
 
 /// Manages the state of the chat session, including context memory and user preferences.
 ///
 /// Implementation Details:
 /// - Uses Riverpod for state management (Providers, StateProviders, FutureProviders).
-/// - Persists chat history and session ID to SharedPreferences.
+/// - Persists chat history and session ID to SecureStorage.
 /// - Provides access to the [ApiClient] with the current base URL and auth token.
 ///
 /// Design Decisions:
 /// - ContextMemory is implemented as a separate class to encapsulate storage logic.
-/// - Chat history is stored as a JSON string in SharedPreferences for simplicity.
+/// - Chat history is stored as a JSON string in SecureStorage.
 /// - A random session ID is generated if one doesn't exist to track conversations.
 ///
 /// Behavioral Specifications:
@@ -29,35 +31,106 @@ final baseUrlProvider = Provider<String>((ref) => const String.fromEnvironment(
 final tokenProvider = StateProvider<String?>((ref) => null);
 final localeProvider = StateProvider<Locale?>((ref) => null);
 
-/// Loads the saved locale from SharedPreferences.
+/// Provider for SecureStorage to allow mocking and dependency injection.
+final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
+  return const FlutterSecureStorage(
+    aOptions: AndroidOptions(),
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+  );
+});
+
+/// Loads the saved locale from SecureStorage.
 final savedLocaleProvider = FutureProvider<Locale?>((ref) async {
-  final prefs = await SharedPreferences.getInstance();
-  final code = prefs.getString('locale_code');
+  final storage = ref.watch(secureStorageProvider);
+  final code = await storage.read(key: 'locale_code');
   if (code == null) return null;
   final parts = code.split('_');
   return parts.length == 2 ? Locale(parts[0], parts[1]) : Locale(parts[0]);
+});
+
+final locationServiceProvider = Provider((ref) => LocationService());
+
+/// Provider to create a simple ApiClient for bootstrapping (no token/country needed).
+final bootstrapApiClientProvider = Provider<ApiClient>((ref) {
+  final base = ref.watch(baseUrlProvider);
+  return ApiClient(baseUrl: base);
+});
+
+/// Holds the current country code (ISO 3166-1 alpha-2).
+/// Defaults to null to avoid incorrect assumptions based on device locale (e.g. en_GB in Australia).
+final countryCodeProvider = StateProvider<String?>((ref) => null);
+
+/// Triggers location detection on startup.
+final locationInitializerProvider = FutureProvider<void>((ref) async {
+  final service = ref.read(locationServiceProvider);
+  String? code;
+
+  try {
+    debugPrint(
+        'Device Locale: ${ui.PlatformDispatcher.instance.locale.countryCode}');
+  } catch (_) {}
+
+  // Strategy: Explicitly check for permission/service availability first.
+  // If available and granted, use GPS.
+  // If NOT available or denied, use IP directly (not as a fallback error handler).
+
+  bool useGps = await service.hasPermission();
+  if (!useGps) {
+    // If not already granted, try requesting once.
+    // Note: Requesting permission might show a dialog.
+    useGps = await service.requestPermission();
+  }
+
+  if (useGps) {
+    try {
+      code = await service.getCurrentCountryCode();
+    } catch (e) {
+      debugPrint('GPS Location failed despite permission: $e');
+    }
+  }
+
+  // Fallback to IP if GPS failed or permission denied
+  if (code == null) {
+    try {
+      final client = ref.read(bootstrapApiClientProvider);
+      final geoData = await client.getGeoIp();
+
+      if (geoData['country_code'] != null) {
+        code = geoData['country_code'];
+        debugPrint('Using IP geolocation: $code');
+      }
+    } catch (e) {
+      debugPrint('IP geolocation failed: $e');
+    }
+  }
+
+  if (code != null) {
+    ref.read(countryCodeProvider.notifier).state = code;
+  }
 });
 
 /// Provides an instance of [ApiClient] configured with the current base URL and token.
 final apiClientProvider = Provider<ApiClient>((ref) {
   final base = ref.watch(baseUrlProvider);
   final tok = ref.watch(tokenProvider);
-  return ApiClient(baseUrl: base, token: tok);
+  final countryCode = ref.watch(countryCodeProvider);
+
+  return ApiClient(baseUrl: base, token: tok, countryCode: countryCode);
 });
 
 final chatSessionIdProvider = StateProvider<String?>((ref) => null);
 
 /// Ensures a chat session ID exists, generating one if necessary.
 final ensureChatSessionIdProvider = FutureProvider<String>((ref) async {
-  final prefs = await SharedPreferences.getInstance();
-  var id = prefs.getString('chat_session_id');
+  final storage = ref.watch(secureStorageProvider);
+  var id = await storage.read(key: 'chat_session_id');
   if (id == null || id.isEmpty) {
     final rnd = Random();
     final ts = DateTime.now().millisecondsSinceEpoch;
     // Avoid JS bitwise pitfalls and nextInt(0) by using a safe literal < 2^32
     final salt = rnd.nextInt(0xFFFFFFFF).toRadixString(16);
     id = 'adk-$ts-$salt';
-    await prefs.setString('chat_session_id', id);
+    await storage.write(key: 'chat_session_id', value: id);
   }
   ref.read(chatSessionIdProvider.notifier).state = id;
   return id;
@@ -65,19 +138,26 @@ final ensureChatSessionIdProvider = FutureProvider<String>((ref) async {
 
 /// Manages local storage of chat messages and highlights.
 class ContextMemory {
-  /// Loads raw message data from SharedPreferences.
+  final FlutterSecureStorage _storage;
+
+  ContextMemory(this._storage);
+
+  /// Loads raw message data from SecureStorage.
   Future<List<Map<String, dynamic>>> _loadRaw() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('chat_history');
+    final raw = await _storage.read(key: 'chat_history');
     if (raw == null || raw.isEmpty) return [];
-    return List<Map<String, dynamic>>.from((jsonDecode(raw) as List<dynamic>)
-        .map((e) => Map<String, dynamic>.from(e as Map)));
+    try {
+      return List<Map<String, dynamic>>.from((jsonDecode(raw) as List<dynamic>)
+          .map((e) => Map<String, dynamic>.from(e as Map)));
+    } catch (e) {
+      debugPrint('Error loading chat history: $e');
+      return [];
+    }
   }
 
-  /// Saves raw message data to SharedPreferences.
+  /// Saves raw message data to SecureStorage.
   Future<void> _saveRaw(List<Map<String, dynamic>> list) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('chat_history', jsonEncode(list));
+    await _storage.write(key: 'chat_history', value: jsonEncode(list));
   }
 
   /// Loads all chat messages as [ChatMessage] objects.
@@ -99,97 +179,33 @@ class ContextMemory {
     list.add({
       'role': m.role,
       'content': m.content,
-      'time': m.time.toIso8601String()
+      'time': m.time.toIso8601String(),
     });
+
     if (list.length > maxItems) {
-      final drop = list.length - maxItems;
-      list.removeRange(0, drop);
+      list.removeRange(0, list.length - maxItems);
     }
     await _saveRaw(list);
-    await _updateHighlights(m);
   }
 
-  /// Clears all chat history and highlights.
+  /// Clears chat history.
   Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('chat_history');
-    await prefs.remove('chat_highlights');
+    await _storage.delete(key: 'chat_history');
   }
 
-  /// Retrieves relevant messages based on a query string.
-  ///
-  /// Uses a simple keyword matching algorithm to score messages.
-  /// Returns the top matching messages combined with the most recent ones.
-  Future<List<ChatMessage>> retrieve(String query, {int window = 12}) async {
+  /// Simple semantic search (keyword match) for demonstration.
+  Future<List<ChatMessage>> retrieve(String query, {int limit = 5}) async {
     final all = await loadAll();
-    if (query.trim().isEmpty) {
-      return all.length <= window ? all : all.sublist(all.length - window);
-    }
     final q = query.toLowerCase();
-    final scored = <ChatMessage, int>{};
-    for (final m in all) {
-      final c = m.content.toLowerCase();
-      var s = 0;
-      for (final w in q.split(RegExp(r"\s+"))) {
-        if (w.isEmpty) continue;
-        if (c.contains(w)) s += 1;
-      }
-      if (s > 0) scored[m] = s;
-    }
-    final top = scored.keys.toList()
-      ..sort((a, b) => scored[b]!.compareTo(scored[a]!));
-    final base = all.length <= window ? all : all.sublist(all.length - window);
-    final merged = [...base];
-    for (final m in top) {
-      if (!merged.contains(m)) merged.add(m);
-      if (merged.length >= window * 2) break;
-    }
-    return merged;
-  }
-
-  /// Updates highlights based on assistant messages containing specific keywords.
-  Future<void> _updateHighlights(ChatMessage m) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('chat_highlights');
-    final list = raw == null || raw.isEmpty
-        ? <String>[]
-        : List<String>.from(
-            (jsonDecode(raw) as List<dynamic>).map((e) => e.toString()));
-    final c = m.content.trim();
-    if (m.role == 'assistant') {
-      if (RegExp(
-              r"\b(timer set|schedule created|energy match|external brain|today's events)\b",
-              caseSensitive: false)
-          .hasMatch(c)) {
-        list.add(c.length > 160 ? c.substring(0, 160) : c);
-      }
-    }
-    if (list.length > 40) {
-      final drop = list.length - 40;
-      list.removeRange(0, drop);
-    }
-    await prefs.setString('chat_highlights', jsonEncode(list));
+    final matches = all
+        .where((m) => m.content.toLowerCase().contains(q))
+        .take(limit)
+        .toList();
+    return matches;
   }
 }
 
-final contextMemoryProvider = Provider<ContextMemory>((ref) => ContextMemory());
-
-final googleSearchEnabledProvider = StateProvider<bool>((ref) => false);
-
-/// Loads the Google Search enabled preference.
-final loadGoogleSearchEnabledProvider = FutureProvider<bool>((ref) async {
-  final prefs = await SharedPreferences.getInstance();
-  final v = prefs.getBool('google_search_enabled') ?? false;
-  ref.read(googleSearchEnabledProvider.notifier).state = v;
-  return v;
-});
-
-final firestoreSyncEnabledProvider = StateProvider<bool>((ref) => false);
-
-/// Loads the Firestore Sync enabled preference.
-final loadFirestoreSyncEnabledProvider = FutureProvider<bool>((ref) async {
-  final prefs = await SharedPreferences.getInstance();
-  final v = prefs.getBool('firestore_sync_enabled') ?? false;
-  ref.read(firestoreSyncEnabledProvider.notifier).state = v;
-  return v;
+final contextMemoryProvider = Provider((ref) {
+  final storage = ref.watch(secureStorageProvider);
+  return ContextMemory(storage);
 });

@@ -17,8 +17,11 @@ Behavioral Specifications:
 """
 import os
 from google.adk.agents import LlmAgent
-from google.adk.models.google_llm import Gemini
-from services.tools import restore_context
+from agents.adk_model import get_adk_model
+from agents.tools import restore_context
+from services.a2a_service import connect_partner
+from agents.adk_tools import tool_a2a_post_update, tool_a2a_list_updates
+from agents.common import auto_compact_callback
 
 
 def capture_voice_note(transcript: str) -> dict:
@@ -35,21 +38,14 @@ def capture_voice_note(transcript: str) -> dict:
 
 
 def a2a_connect(partner_id: str) -> dict:
-    """
-    Simulates a connection to an accountability partner agent.
-
-    Args:
-        partner_id (str): The identifier of the partner to connect to.
-
-    Returns:
-        dict: Connection status details.
-    """
-    return {"partner_id": partner_id, "status": "connected"}
+    return connect_partner(partner_id)
 
 
 external_brain_agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest")),
+    model=get_adk_model(),
     name="external_brain_agent",
-    instruction="Capture notes, restore context, and coordinate with accountability partners.",
-    tools=[capture_voice_note, restore_context, a2a_connect],
+    description="External brain delegation agent",
+    instruction="Capture notes and coordinate with partners.",
+    tools=[capture_voice_note, a2a_connect, restore_context, tool_a2a_post_update, tool_a2a_list_updates],
+    after_agent_callback=auto_compact_callback,
 )

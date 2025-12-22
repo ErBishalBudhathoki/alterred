@@ -13,6 +13,7 @@ import 'tts_service_stub.dart'
 /// Design Decisions:
 /// - `speak` is asynchronous to allow awaiting completion (where supported).
 /// - `speaking` stream provides real-time status for UI updates (e.g., animating an avatar).
+/// - Supports echo cancellation callbacks for integration with STT.
 ///
 /// Behavioral Specifications:
 /// - [supported]: Returns true if TTS is available on the current platform.
@@ -36,8 +37,17 @@ abstract class TtsService {
   /// Stops any currently playing speech.
   Future<void> stop();
 
+  /// Sets voice configuration.
+  void setOptions({String? voice, String? quality});
+
   /// Stream of boolean values indicating whether speech is currently active.
   Stream<bool> get speaking;
+  
+  /// Callback invoked when TTS starts speaking (for echo cancellation)
+  void Function(String text)? onSpeakStart;
+  
+  /// Callback invoked when TTS finishes speaking (for echo cancellation)
+  void Function()? onSpeakEnd;
 }
 
 TtsService createTtsService() => createTtsServiceImpl();

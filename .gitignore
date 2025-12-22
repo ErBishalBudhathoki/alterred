@@ -68,10 +68,91 @@ firebase-service-account.json
 /scripts/run_local.sh
 /scripts/android_dev_run.sh
 
-# Development and planning files
-/docs/
+# Development and planning files (but keep main docs)
 task.md
 issues.md
 neuropilot_quickstart.md
 neuropilot_tech_stack.md
+neuropilot_complete_plan.md
+neuropilot_resources.md
+neuropath_requirements.md
+
+# Test files and coverage
+**/test/
+**/tests/
+**/*test*.py
+**/*test*.dart
+**/*test*.js
+**/*test*.ts
+**/coverage/
+**/.nyc_output/
+**/test-results/
+**/.pytest_cache/
+
+# Build artifacts and cache
+**/.dart_tool/
+**/build/
+**/dist/
+**/.flutter-plugins*
+**/.packages
+**/pubspec.lock
+
+# Local development scripts with hardcoded values
+scripts/run_local_user*.sh
+scripts/*_local*.sh
+
+# Firebase and Google services
+**/google-services.json
+**/GoogleService-Info.plist
+firebase-debug.log
+firebase-debug.*.log
+
+# Temporary and backup files
+**/*.tmp
+**/*.temp
+**/*.bak
+**/*.swp
+**/*.swo
+**/*~
+
+# IDE and editor files
+.vscode/settings.json
+.vscode/launch.json
+**/.idea/
+**/*.iml
+
+# Cache directories
+.cache/
+.hypothesis/
+.kiro/
+.trae/
+.ruff_cache/
+.mypy_cache/
+
+# Development tools config
+.pre-commit-config.yaml
+.ruff.toml
+mypy.ini
+pytest.ini
+
+# Voice models and assets (large files)
+voice_models/
+fonts/
+backend/
+bin/
+UI2WORK/
+
+# Flutter project docs (keep main docs/ directory)
+frontend/flutter_neuropilot/docs/
+
+# Temporary documentation (keep main docs)
+*_COMPLETION_REPORT.md
+*_IMPLEMENTATION.md
+ADHD_User_Guide.md
+REALTIME_VOICE_MODE.md
+VOICE_SETUP.md
+ORCHESTRATION_*.md
+CONTEXT_ENGINEERING_*.md
+NOTION_INTEGRATION_COMPLETION_REPORT.md
+OBSERVABILITY_EVALUATION_COMPLETION_REPORT.md
 

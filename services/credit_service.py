@@ -24,10 +24,9 @@ Behavioral Specifications:
 - `get_transaction_history`: View credit usage history
 """
 
-import os
-from typing import Optional, Dict, Any, List
-from datetime import datetime
+from typing import Optional, Dict, Any
 from firebase_admin import firestore
+from google.cloud.firestore_v1 import FieldFilter
 
 
 from services.firebase_client import get_client
@@ -36,7 +35,7 @@ class CreditService:
     """Manage user credit balances and transactions."""
     
     # Constants
-    INITIAL_CREDITS = 6.0  # Free credits for new users
+    INITIAL_CREDITS = 13.0  # Free credits for new users
     LOW_CREDIT_THRESHOLD = 2.0  # Trigger notification
     
     def __init__(self):
@@ -304,7 +303,7 @@ class CreditService:
         try:
             transactions = (
                 self.db.collection("credit_transactions")
-                .where("user_id", "==", user_id)
+                .where(filter=FieldFilter("user_id", "==", user_id))
                 .order_by("timestamp", direction=firestore.Query.DESCENDING)
                 .limit(limit)
                 .stream()
@@ -358,9 +357,6 @@ class CreditService:
             doc = credit_ref.get()
             
             if doc.exists:
-                data = doc.to_dict()
-                last_notified = data.get("last_notified")
-                
                 # Only notify if haven't notified recently
                 if balance == 0:
                     notification_type = "credits_exhausted"

@@ -45,20 +45,25 @@ class NpButton extends StatelessWidget {
       _ => DesignTokens.onPrimary,
     };
     final enabled = onPressed != null && !loading;
-    return FilledButton.icon(
-      onPressed: enabled ? onPressed : null,
-      icon: loading
-          ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: fg))
-          : Icon(icon ?? Icons.arrow_forward, color: fg),
-      label: Text(label, style: TextStyle(color: fg)),
-      style: FilledButton.styleFrom(
-        backgroundColor: bg,
-        padding: const EdgeInsets.symmetric(
-          horizontal: DesignTokens.spacingXl,
-          vertical: DesignTokens.spacingSm,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
+    return Semantics(
+      label: label,
+      button: true,
+      enabled: enabled,
+      child: FilledButton.icon(
+        onPressed: enabled ? onPressed : null,
+        icon: loading
+            ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: fg))
+            : Icon(icon ?? Icons.arrow_forward, color: fg),
+        label: Text(label, style: TextStyle(color: fg)),
+        style: FilledButton.styleFrom(
+          backgroundColor: bg,
+          padding: const EdgeInsets.symmetric(
+            horizontal: DesignTokens.spacingXl,
+            vertical: DesignTokens.spacingSm,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(DesignTokens.radiusMd),
+          ),
         ),
       ),
     );

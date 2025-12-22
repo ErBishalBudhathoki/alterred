@@ -28,11 +28,10 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
-import os as _os
 import base64
 import secrets
 from cryptography.fernet import Fernet
-import google.generativeai as genai
+from google.genai import Client as GenAIClient
 from firebase_admin import firestore
 from services.firebase_client import get_client
 
@@ -173,11 +172,9 @@ class UserSettings:
         Returns (is_valid, error_message).
         """
         try:
-            # Configure with test key
-            genai.configure(api_key=api_key)
-            
+            client = GenAIClient(api_key=api_key)
             # Try to list models as a validation check
-            models = genai.list_models()
+            models = client.models.list()
             list(models)  # Force evaluation
             
             return (True, None)
@@ -246,16 +243,18 @@ class UserSettings:
                 except Exception:
                     refresh_token = None
             # Legacy support
-            if access_token is None and isinstance(data.get("access_token_encrypted"), str):
+            enc_access = data.get("access_token_encrypted")
+            if access_token is None and isinstance(enc_access, str):
                 try:
                     f = Fernet(self._master_secret)
-                    access_token = f.decrypt(data.get("access_token_encrypted").encode()).decode()
+                    access_token = f.decrypt(enc_access.encode()).decode()
                 except Exception:
                     access_token = None
-            if refresh_token is None and isinstance(data.get("refresh_token_encrypted"), str):
+            enc_refresh = data.get("refresh_token_encrypted")
+            if refresh_token is None and isinstance(enc_refresh, str):
                 try:
                     f = Fernet(self._master_secret)
-                    refresh_token = f.decrypt(data.get("refresh_token_encrypted").encode()).decode()
+                    refresh_token = f.decrypt(enc_refresh.encode()).decode()
                 except Exception:
                     refresh_token = None
             if not access_token or not refresh_token:
@@ -297,6 +296,32 @@ class UserSettings:
             return data.get(f"{provider}_connected", False)
         except Exception:
             return False
+
+    def has_oauth_tokens(self, provider: str) -> bool:
+        """Return True if an OAuth token document exists for provider."""
+        try:
+            doc = self.db.collection("users").document(self.user_id).collection("oauth_tokens").document(provider).get()
+            if not doc.exists:
+                return False
+            data = doc.to_dict() or {}
+            # Consider tokens present if at least access token payload exists
+            return bool(data.get("access_token") or data.get("access_token_encrypted"))
+        except Exception:
+            return False
+
+    def get_oauth_token_metadata(self, provider: str) -> Dict[str, Any]:
+        """Return non-sensitive OAuth metadata without decrypting tokens."""
+        try:
+            doc = self.db.collection("users").document(self.user_id).collection("oauth_tokens").document(provider).get()
+            if not doc.exists:
+                return {}
+            data = doc.to_dict() or {}
+            return {
+                "expires_at": data.get("expires_at"),
+                "scopes": data.get("scopes", [])
+            }
+        except Exception:
+            return {}
 
     def save_profile_email(self, email: str) -> Dict[str, Any]:
         try:

@@ -43,25 +43,16 @@ from enum import Enum
 from google.genai import Client as GenAIClient
 from firebase_admin import firestore
 from dotenv import load_dotenv
-
-# Try to import Vertex AI, but make it optional
-try:
-    import vertexai
-    from vertexai.preview.generative_models import GenerativeModel
-    VERTEX_AI_AVAILABLE = True
-except ImportError:
-    VERTEX_AI_AVAILABLE = False
-    print("Warning: vertexai package not fully available. Install with: pip install google-cloud-aiplatform")
+from services.firebase_client import get_client
+from services.metrics_service import record_model_usage
 
 
 class ClientMode(Enum):
     """Enum for client operation modes."""
     VERTEX_AI = "vertex_ai"  # Organization billing via Vertex AI
     BYOK = "byok"  # Bring Your Own Key (user's API key)
-    FALLBACK = "fallback"  # Emergency fallback to system key
+    FALLBACK = "fallback"  # Deprecated: system key fallback (disabled)
 
-
-from services.firebase_client import get_client
 
 class VertexAIClient:
     """
@@ -87,16 +78,8 @@ class VertexAIClient:
         self.location = location or os.getenv("VERTEX_AI_LOCATION", "australia-southeast1")
         self.db = get_client()
         
-        # Initialize Vertex AI if credentials and module are available
-        if self.project_id and VERTEX_AI_AVAILABLE:
-            try:
-                vertexai.init(project=self.project_id, location=self.location)
-                self.vertex_ai_available = True
-            except Exception as e:
-                print(f"Vertex AI initialization failed: {e}")
-                self.vertex_ai_available = False
-        else:
-            self.vertex_ai_available = False
+        # Check if Vertex AI configuration is present
+        self.vertex_ai_available = bool(self.project_id and self.location)
     
     def _get_user_api_key(self) -> Optional[str]:
         """Get user's custom API key from UserSettings."""
@@ -203,25 +186,13 @@ class VertexAIClient:
             return ClientMode.BYOK
         
         # Check credit balance - IF vertex_ai_available is True
-        if self.user_id and self.vertex_ai_available:
-            balance = self._get_credit_balance()
-            if balance > 0:
-                return ClientMode.VERTEX_AI
-        
-        # Fallback to system key if available
-        system_key = os.getenv("GOOGLE_API_KEY")
-        if system_key:
-            return ClientMode.FALLBACK
-        
-        # If Vertex AI is available (configured via env vars) but user has no credits/key,
-        # we might want to default to it if we're running in a context where we pay (e.g. internal testing)
-        # But for now, let's stick to the credit check logic.
-        
-        # If nothing else works but we have Vertex config, maybe try Vertex?
         if self.vertex_ai_available:
-             # Check if we should allow without credits (e.g. for testing)
-             if os.getenv("ALLOW_NO_CREDIT_VERTEX", "false").lower() == "true":
-                 return ClientMode.VERTEX_AI
+            # Prefer Vertex AI when configured; credit enforcement happens at generate time
+            return ClientMode.VERTEX_AI
+        
+        # Do NOT fallback to system key; only BYOK explicitly allowed
+        
+        # No fallback to system key
 
         # No valid auth method available
         raise ValueError("No valid authentication method available. User needs to either have credits or provide their own API key.")
@@ -241,11 +212,9 @@ class VertexAIClient:
         resolved_model = resolve_model_name(model_name)
         
         if mode == ClientMode.VERTEX_AI:
-            # Use Vertex AI with org billing
-            # Ensure vertexai is initialized
-            vertexai.init(project=self.project_id, location=self.location)
-            model = GenerativeModel(resolved_model)
-            return model, mode
+            # Use Vertex AI with org billing via new SDK
+            client = GenAIClient(vertexai=True, project=self.project_id, location=self.location)
+            return client, mode
         
         elif mode == ClientMode.BYOK:
             # Use user's custom API key
@@ -253,11 +222,9 @@ class VertexAIClient:
             client = GenAIClient(api_key=user_api_key)
             return client, mode
         
-        else:  # FALLBACK
-            # Use system API key
-            system_key = os.getenv("GOOGLE_API_KEY")
-            client = GenAIClient(api_key=system_key)
-            return client, mode
+        else:
+            # System API key fallback is disabled
+            raise ValueError("Google AI Studio system key usage is disabled. Provide BYOK or configure Vertex AI.")
     
     async def generate_content_async(
         self,
@@ -277,6 +244,8 @@ class VertexAIClient:
             Generated text chunks
         """
         mode = self.determine_mode()
+        import time
+        t0 = time.time()
         
         # Consume credit if using Vertex AI
         if mode == ClientMode.VERTEX_AI:
@@ -285,29 +254,98 @@ class VertexAIClient:
                 mode = ClientMode.BYOK
         
         resolved_model = resolve_model_name(model_name)
-        model, actual_mode = self.get_client(resolved_model)
+        client, actual_mode = self.get_client(resolved_model)
         
         # Generate content
-        if actual_mode == ClientMode.VERTEX_AI:
-            response = await model.generate_content_async(prompt, **kwargs)
-            for chunk in response:
-                if chunk.text:
-                    yield chunk.text
-        else:
-            # BYOK or FALLBACK use google.genai Client
+        try:
             contents = [{"role": "user", "parts": [{"text": prompt}]}]
-            # Synchronous call; wrap output as a single async yield
+            # Unified call for both modes using google.genai SDK
             try:
-                response = model.models.generate_content(model=resolved_model, contents=contents, **kwargs)
-                text = getattr(response, "text", None)
-                if text:
-                    yield text
+                response = await client.models.generate_content_async(model=resolved_model, contents=contents, **kwargs)
+                async for chunk in response:
+                    text = getattr(chunk, "text", None)
+                    if text:
+                        yield text
             except TypeError:
                 # Handle keyword-only parameter signature differences
-                response = model.models.generate_content(model=resolved_model, contents=contents)
-                text = getattr(response, "text", None)
-                if text:
-                    yield text
+                response = await client.models.generate_content_async(model=resolved_model, contents=contents)
+                async for chunk in response:
+                    text = getattr(chunk, "text", None)
+                    if text:
+                        yield text
+            finally:
+                try:
+                    ms = int((time.time() - t0) * 1000)
+                    record_model_usage(model_name=resolved_model, latency_ms=ms, status="success")
+                except Exception:
+                    pass
+        except Exception as e:
+            try:
+                ms = int((time.time() - t0) * 1000)
+                record_model_usage(model_name=resolved_model, latency_ms=ms, status="error", error=str(e))
+            except Exception:
+                pass
+            raise
+            
+    def generate_content(
+        self,
+        prompt: str,
+        model_name: str = "gemini-2.0-flash-exp",
+        **kwargs
+    ) -> str:
+        """
+        Synchronous version of generate_content.
+        
+        Args:
+            prompt: The input prompt
+            model_name: Model to use
+            **kwargs: Additional generation parameters
+            
+        Returns:
+            Generated text
+        """
+        mode = self.determine_mode()
+        import time
+        t0 = time.time()
+        
+        # Consume credit if using Vertex AI
+        if mode == ClientMode.VERTEX_AI:
+            if not self._consume_credit(amount=1.0, metadata={"prompt_length": len(prompt)}):
+                # Fall back to BYOK if credit consumption fails
+                mode = ClientMode.BYOK
+        
+        resolved_model = resolve_model_name(model_name)
+        client, actual_mode = self.get_client(resolved_model)
+        
+        try:
+            contents = [{"role": "user", "parts": [{"text": prompt}]}]
+            # Unified call for both modes using google.genai SDK
+            try:
+                response = client.models.generate_content(model=resolved_model, contents=contents, **kwargs)
+                text = getattr(response, "text", "")
+                try:
+                    ms = int((time.time() - t0) * 1000)
+                    record_model_usage(model_name=resolved_model, latency_ms=ms, status="success")
+                except Exception:
+                    pass
+                return text
+            except TypeError:
+                # Handle keyword-only parameter signature differences
+                response = client.models.generate_content(model=resolved_model, contents=contents)
+                text = getattr(response, "text", "")
+                try:
+                    ms = int((time.time() - t0) * 1000)
+                    record_model_usage(model_name=resolved_model, latency_ms=ms, status="success")
+                except Exception:
+                    pass
+                return text
+        except Exception as e:
+            try:
+                ms = int((time.time() - t0) * 1000)
+                record_model_usage(model_name=resolved_model, latency_ms=ms, status="error", error=str(e))
+            except Exception:
+                pass
+            raise
 
 
 def get_vertex_ai_client(user_id: Optional[str] = None) -> VertexAIClient:
@@ -346,17 +384,19 @@ def resolve_model_name(preferred: Optional[str] = None) -> str:
     except Exception:
         pass
 
-    if _validate_model_name(preferred):
-        return preferred.strip()
+    if preferred and isinstance(preferred, str):
+        p = preferred.strip()
+        if p:
+            return p
 
-    env_model = os.getenv("DEFAULT_MODEL")
-    if _validate_model_name(env_model):
-        return env_model.strip()
+    env_model = (os.getenv("DEFAULT_MODEL") or "").strip()
+    if env_model:
+        return env_model
 
     if (os.getenv("GITHUB_ACTIONS", "").lower() == "true"):
         for key in ("GITHUB_DEFAULT_MODEL", "MODEL_NAME", "DEFAULT_MODEL"):
-            val = os.getenv(key)
-            if _validate_model_name(val):
-                return val.strip()
+            val = (os.getenv(key) or "").strip()
+            if val:
+                return val
 
     return "gemini-2.0-flash"

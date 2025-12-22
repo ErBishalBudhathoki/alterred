@@ -33,31 +33,47 @@ def _root(user_id: str):
     return db.collection("users").document(user_id).collection("timers")
 
 
-def store_countdown(target_iso: str, warnings: List[int]) -> str:
-    uid = os.getenv("USER") or "terminal_user"
+def _resolve_uid(uid: Optional[str]) -> str:
+    return uid or os.getenv("USER") or "terminal_user"
+
+
+def store_countdown(target_iso: str, warnings: List[int], uid: Optional[str] = None) -> str:
+    uid = _resolve_uid(uid)
     timer_id = uuid.uuid4().hex
     ref = _root(uid).document(timer_id)
     ref.set({
         "target": target_iso,
         "warnings": warnings,
         "status": "scheduled",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now().isoformat(),
     })
     return timer_id
 
 
-def store_tick(timer_id: str, remaining_seconds: int):
-    uid = os.getenv("USER") or "terminal_user"
+def store_tick(timer_id: str, remaining_seconds: int, uid: Optional[str] = None):
+    uid = _resolve_uid(uid)
     ref = _root(uid).document(timer_id)
     ref.update({
-        "last_tick": datetime.utcnow().isoformat(),
+        "last_tick": datetime.now().isoformat(),
         "remaining_seconds": remaining_seconds,
     })
 
+def cancel_timer(timer_id: str, uid: Optional[str] = None) -> bool:
+    uid = _resolve_uid(uid)
+    ref = _root(uid).document(timer_id)
+    try:
+        doc = ref.get()
+        if doc.exists:
+            ref.update({"status": "cancelled", "cancelled_at": datetime.now().isoformat()})
+            return True
+        return False
+    except Exception:
+        return False
 
-def list_today_timers() -> List[Dict[str, Any]]:
-    uid = os.getenv("USER") or "terminal_user"
-    today = datetime.utcnow().date().isoformat()
+
+def list_today_timers(uid: Optional[str] = None) -> List[Dict[str, Any]]:
+    uid = _resolve_uid(uid)
+    today = datetime.now().date().isoformat()
     res = []
     for d in _root(uid).stream():
         doc = d.to_dict()
@@ -67,7 +83,7 @@ def list_today_timers() -> List[Dict[str, Any]]:
     return res
 
 
-def get_timer(timer_id: str) -> Optional[Dict[str, Any]]:
-    uid = os.getenv("USER") or "terminal_user"
+def get_timer(timer_id: str, uid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    uid = _resolve_uid(uid)
     doc = _root(uid).document(timer_id).get()
     return doc.to_dict() if doc.exists else None

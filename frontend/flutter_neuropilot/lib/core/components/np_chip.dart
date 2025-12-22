@@ -21,12 +21,14 @@ class NpChip extends StatelessWidget {
   final NpChipType type;
   final bool selected;
   final VoidCallback? onTap;
+  final String? semanticsLabel;
   const NpChip({
     super.key,
     required this.label,
     this.type = NpChipType.filter,
     this.selected = false,
     this.onTap,
+    this.semanticsLabel,
   });
 
   @override
@@ -42,7 +44,7 @@ class NpChip extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(DesignTokens.radiusSm)),
     );
     return Semantics(
-      label: label,
+      label: semanticsLabel ?? label,
       selected: selected,
       button: true,
       child: chip,

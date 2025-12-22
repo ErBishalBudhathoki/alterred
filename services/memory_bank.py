@@ -1,12 +1,16 @@
 from typing import Any, Dict, Optional, List
 from datetime import datetime
 
+from datetime import timedelta
+
 from .firebase_client import get_client
+from .vertex_ai_client import get_vertex_ai_client
 
 
 _pending_store: Dict[str, Dict[str, Any]] = {}
 _calendar_today_store: Dict[str, Any] = {}
 _conversations: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+_summary_cache: Dict[str, Dict[str, str]] = {}
 
 
 class FirestoreMemoryBank:
@@ -43,7 +47,7 @@ class FirestoreMemoryBank:
             ref.collection("brain_states").add({
                 "state": state,
                 "context": context,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             })
         except Exception:
             return
@@ -60,7 +64,7 @@ class FirestoreMemoryBank:
                 "estimated_minutes": estimated_minutes,
                 "actual_minutes": actual_minutes,
                 "accuracy": accuracy,
-                "completed_at": datetime.utcnow().isoformat()
+                "completed_at": datetime.now().isoformat()
             })
 
             tasks = ref.collection("task_history").order_by("completed_at", direction="DESCENDING").limit(10).stream()
@@ -98,7 +102,7 @@ class FirestoreMemoryBank:
             ref.collection("strategies").add({
                 "kind": kind,
                 "detail": detail,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             })
         except Exception:
             return
@@ -112,7 +116,7 @@ class FirestoreMemoryBank:
             self.ensure_profile()
             ref.collection("calendar").document("today").set({
                 "events": events,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             })
         except Exception:
             _calendar_today_store[self.user_id] = events
@@ -139,7 +143,7 @@ class FirestoreMemoryBank:
             self.ensure_profile()
             ref.collection("pending").document("action").set({
                 "action": action,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             })
         except Exception:
             _pending_store[self.user_id] = action
@@ -176,7 +180,7 @@ class FirestoreMemoryBank:
                     "role": role,
                     "text": text,
                     "tool_results": tool_results,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.now().isoformat()
                 })
                 return
             self.ensure_profile()
@@ -184,7 +188,7 @@ class FirestoreMemoryBank:
                 "role": role,
                 "text": text,
                 "tool_results": tool_results,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             })
         except Exception:
             sess = _conversations.setdefault(self.user_id, {}).setdefault(session_id, [])
@@ -192,7 +196,7 @@ class FirestoreMemoryBank:
                 "role": role,
                 "text": text,
                 "tool_results": tool_results,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             })
 
     def get_recent_messages(self, session_id: str, limit: int = 8) -> List[Dict[str, Any]]:
@@ -207,6 +211,18 @@ class FirestoreMemoryBank:
             for m in msgs:
                 out.append(m.to_dict())
             out.reverse()
+            
+            # Check for summary
+            summary = self.get_session_summary(session_id)
+            if summary:
+                # Prepend summary as a context message
+                out.insert(0, {
+                    "role": "system",
+                    "text": f"PREVIOUS CONVERSATION SUMMARY: {summary}",
+                    "timestamp": datetime.now().isoformat(),
+                    "type": "summary"
+                })
+                
             return out
         except Exception:
             sess = _conversations.get(self.user_id, {}).get(session_id, [])
@@ -231,13 +247,13 @@ class FirestoreMemoryBank:
                 return
             self.ensure_profile()
             from datetime import datetime
-            date_key = datetime.utcnow().date().isoformat()
+            date_key = datetime.now().date().isoformat()
             ref.collection("tasks").document(date_key).collection("logs").add({
                 "task_id": task_id,
                 "title": title,
                 "status": status,
                 "session_id": session_id,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             })
         except Exception:
             return
@@ -249,8 +265,8 @@ class FirestoreMemoryBank:
                 return []
             logs = ref.collection("tasks").document(date_key).collection("logs").order_by("timestamp").stream()
             res = []
-            for l in logs:
-                res.append(l.to_dict())
+            for entry in logs:
+                res.append(entry.to_dict())
             return res
         except Exception:
             return []
@@ -262,11 +278,11 @@ class FirestoreMemoryBank:
                 return
             self.ensure_profile()
             from datetime import datetime
-            date_key = datetime.utcnow().date().isoformat()
+            date_key = datetime.now().date().isoformat()
             ref.collection("taskflow").document(date_key).collection("events").add({
                 "kind": kind,
                 "payload": payload,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             })
         except Exception:
             return
@@ -293,10 +309,10 @@ class FirestoreMemoryBank:
             if not ref:
                 return
             from datetime import datetime
-            date_key = datetime.utcnow().date().isoformat()
+            date_key = datetime.now().date().isoformat()
             ref.collection("energy").document(date_key).collection("levels").add({
                 "level": level,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             })
         except Exception:
             return
@@ -326,11 +342,11 @@ class FirestoreMemoryBank:
                 return
             self.ensure_profile()
             from datetime import datetime
-            date_key = datetime.utcnow().date().isoformat()
+            date_key = datetime.now().date().isoformat()
             ref.collection("decision").document(date_key).collection("events").add({
                 "kind": kind,
                 "payload": payload,
-                "timestamp": datetime.utcnow().isoformat()
+                "timestamp": datetime.now().isoformat()
             })
         except Exception:
             return
@@ -351,3 +367,112 @@ class FirestoreMemoryBank:
             return None
         except Exception:
             return None
+
+    def get_session_summary(self, session_id: str) -> Optional[str]:
+        try:
+            # Check cache first
+            if self.user_id in _summary_cache and session_id in _summary_cache[self.user_id]:
+                return _summary_cache[self.user_id][session_id]
+
+            ref = self._user_ref()
+            if not ref:
+                return None
+                
+            doc = ref.collection("conversations").document(session_id).get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                summary = data.get("summary")
+                if summary:
+                    # Update cache
+                    if self.user_id not in _summary_cache:
+                        _summary_cache[self.user_id] = {}
+                    _summary_cache[self.user_id][session_id] = summary
+                    return summary
+            return None
+        except Exception:
+            return None
+
+    def summarize_session(self, session_id: str) -> bool:
+        try:
+            #Get last 20 messages for context
+            msgs = self.get_recent_messages(session_id, limit=20)
+            if not msgs:
+                return False
+                
+            # Filter out previous summaries to avoid recursion loops in text
+            text_parts = []
+            for m in msgs:
+                if m.get("type") == "summary":
+                    continue
+                role = m.get("role", "unknown")
+                content = m.get("text", "")
+                text_parts.append(f"{role}: {content}")
+            
+            if not text_parts:
+                return False
+                
+            full_text = "\n".join(text_parts)
+            
+            client = get_vertex_ai_client(self.user_id)
+            prompt = f"Summarize the following conversation concisely, capturing key decisions, user preferences, and current context. Ignore trivial chitchat.\n\n{full_text}"
+            
+            summary = client.generate_content(prompt)
+            if not summary:
+                return False
+                
+            ref = self._user_ref()
+            if not ref:
+                return False
+                
+            # Store summary on the session document
+            ref.collection("conversations").document(session_id).set({
+                "summary": summary,
+                "last_summarized": datetime.now().isoformat()
+            }, merge=True)
+            
+            # Update cache
+            if self.user_id not in _summary_cache:
+                _summary_cache[self.user_id] = {}
+            _summary_cache[self.user_id][session_id] = summary
+            
+            return True
+        except Exception as e:
+            print(f"Error summarizing session: {e}")
+            return False
+
+    def cleanup_old_memories(self, retention_days: int = 30):
+        """
+        Deletes raw messages older than retention_days, keeping summaries.
+        """
+        try:
+            ref = self._user_ref()
+            if not ref:
+                return
+                
+            cutoff = datetime.now() - timedelta(days=retention_days)
+            cutoff_iso = cutoff.isoformat()
+            
+            # Iterate through all conversations (this might be slow for many sessions)
+            # A better approach for production would be a separate scheduled function
+            sessions = ref.collection("conversations").stream()
+            
+            for sess in sessions:
+                # Delete messages older than cutoff
+                msgs = sess.reference.collection("messages")\
+                    .where("timestamp", "<", cutoff_iso)\
+                    .limit(500)\
+                    .stream()
+                
+                batch = self.db.batch()
+                count = 0
+                for m in msgs:
+                    batch.delete(m.reference)
+                    count += 1
+                
+                if count > 0:
+                    batch.commit()
+                    
+        except Exception as e:
+            print(f"Error cleaning up old memories: {e}")
+
+

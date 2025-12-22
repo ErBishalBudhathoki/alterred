@@ -134,7 +134,6 @@ class PulseIndicator extends StatelessWidget {
       case PulseMode.processing:
         return DesignTokens.warning; // Amber for processing
       case PulseMode.idle:
-      default:
         return theme.primary; // Blue for idle
     }
   }
@@ -148,7 +147,6 @@ class PulseIndicator extends StatelessWidget {
       case PulseMode.processing:
         return Icons.hourglass_empty;
       case PulseMode.idle:
-      default:
         return Icons.mic_none;
     }
   }

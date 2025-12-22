@@ -17,9 +17,8 @@ Behavioral Specifications:
 """
 import os
 from google.adk.agents import LlmAgent
-from google.adk.models.google_llm import Gemini
-from services.tools import match_task_to_energy
-
+from agents.adk_model import get_adk_model
+from agents.common import auto_compact_callback
 
 def detect_sensory_overload(text: str) -> dict:
     """
@@ -58,8 +57,10 @@ def routine_vs_novelty_balancer(day_context: str) -> dict:
 
 
 energy_sensory_agent = LlmAgent(
-    model=Gemini(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest")),
+    model=get_adk_model(),
     name="energy_sensory_agent",
-    instruction="Track energy, detect sensory overload, balance routine and novelty, and recommend tasks.",
-    tools=[match_task_to_energy, detect_sensory_overload, routine_vs_novelty_balancer],
+    description="Energy and sensory delegation agent",
+    instruction="Detect sensory overload and balance routine vs novelty.",
+    tools=[detect_sensory_overload, routine_vs_novelty_balancer],
+    after_agent_callback=auto_compact_callback,
 )

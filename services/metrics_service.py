@@ -22,7 +22,7 @@ Behavioral Specifications:
 - `compute_daily_overview`: Returns a summary dictionary for a specific date.
 """
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from services.firebase_client import get_client
@@ -33,7 +33,7 @@ def _metrics_doc(user_id: str, date_key: str):
 
 
 def _date_key():
-    return datetime.utcnow().date().isoformat()
+    return datetime.now().date().isoformat()
 
 
 def record_task_completion(task_id: str, estimated_minutes: int, actual_minutes: int) -> None:
@@ -49,7 +49,7 @@ def record_task_completion(task_id: str, estimated_minutes: int, actual_minutes:
         "estimated": estimated_minutes,
         "actual": actual_minutes,
         "accuracy": acc,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now().isoformat(),
     })
 
 
@@ -59,7 +59,7 @@ def record_decision_resolution(duration_seconds: int) -> None:
     _metrics_doc(uid, dk).collection("events").add({
         "kind": "decision_resolution",
         "duration_seconds": duration_seconds,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now().isoformat(),
     })
 
 
@@ -68,7 +68,7 @@ def record_hyperfocus_interrupt() -> None:
     dk = _date_key()
     _metrics_doc(uid, dk).collection("events").add({
         "kind": "hyperfocus_interrupt",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now().isoformat(),
     })
 
 
@@ -78,7 +78,7 @@ def record_agent_latency(ms: int) -> None:
     _metrics_doc(uid, dk).collection("events").add({
         "kind": "agent_latency",
         "ms": ms,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now().isoformat(),
     })
 
 
@@ -100,11 +100,44 @@ def record_model_usage(
         "tokens_input": tokens_input,
         "tokens_output": tokens_output,
         "status": status,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now().isoformat(),
     }
     if error:
         data["error"] = error
         
+    _metrics_doc(uid, dk).collection("events").add(data)
+
+
+def record_stress_level(level: int, context: Optional[str] = None) -> None:
+    """
+    Log a user's reported stress/energy level (1-10).
+    Level 1 = Low Energy/High Stress (Bad)
+    Level 10 = High Energy/Flow (Good)
+    """
+    uid = os.getenv("USER") or "terminal_user"
+    dk = _date_key()
+    data = {
+        "kind": "stress_level",
+        "level": level,
+        "timestamp": datetime.now().isoformat(),
+    }
+    if context:
+        data["context"] = context
+    _metrics_doc(uid, dk).collection("events").add(data)
+
+
+def record_strategy_effectiveness(strategy_name: str, successful: bool) -> None:
+    """
+    Log the outcome of a specific strategy (e.g., 'body_double', 'timer').
+    """
+    uid = os.getenv("USER") or "terminal_user"
+    dk = _date_key()
+    data = {
+        "kind": "strategy_effectiveness",
+        "strategy": strategy_name,
+        "successful": successful,
+        "timestamp": datetime.now().isoformat(),
+    }
     _metrics_doc(uid, dk).collection("events").add(data)
 
 
@@ -115,30 +148,60 @@ def compute_daily_overview(user_id: str, date_key: str) -> Dict[str, Any]:
     decisions = []
     latencies = []
     interrupts = 0
+    stress_levels = []
+    strategies: Dict[str, List[bool]] = {}
+
     for e in evs:
         d = e.to_dict()
-        if d.get("kind") == "task_completion":
+        kind = d.get("kind")
+        
+        if kind == "task_completion":
             tasks.append(d)
-        elif d.get("kind") == "decision_resolution":
+        elif kind == "decision_resolution":
             decisions.append(d)
-        elif d.get("kind") == "agent_latency":
+        elif kind == "agent_latency":
             latencies.append(d.get("ms", 0))
-        elif d.get("kind") == "hyperfocus_interrupt":
+        elif kind == "hyperfocus_interrupt":
             interrupts += 1
+        elif kind == "stress_level":
+            val = d.get("level")
+            if val is not None:
+                stress_levels.append(int(val))
+        elif kind == "strategy_effectiveness":
+            strat = d.get("strategy", "unknown")
+            success = d.get("successful", False)
+            if strat not in strategies:
+                strategies[strat] = []
+            strategies[strat].append(success)
+
     accs = [t.get("accuracy", 1.0) for t in tasks]
-    avg_acc = (sum(accs) / len(accs)) if accs else None
-    avg_latency = (sum(latencies) / len(latencies)) if latencies else None
-    avg_decision_time = (sum([d.get("duration_seconds", 0) for d in decisions]) / len(decisions)) if decisions else None
+    avg_acc = (sum(accs) / len(accs)) if accs else 0.0
+    avg_latency = (sum(latencies) / len(latencies)) if latencies else 0.0
+    avg_decision_time = (sum([d.get("duration_seconds", 0) for d in decisions]) / len(decisions)) if decisions else 0.0
+    
+    avg_stress = (sum(stress_levels) / len(stress_levels)) if stress_levels else 0.0
+    
+    strategy_stats = {}
+    for strat, outcomes in strategies.items():
+        success_rate = (sum(1 for x in outcomes if x) / len(outcomes)) * 100
+        strategy_stats[strat] = {
+            "count": len(outcomes),
+            "success_rate": success_rate
+        }
+
     return {
         "tasks_completed": len(tasks),
         "avg_time_accuracy": avg_acc,
         "avg_agent_latency_ms": avg_latency,
         "avg_decision_resolution_seconds": avg_decision_time,
         "hyperfocus_interrupts": interrupts,
+        "avg_stress_level": avg_stress,
+        "stress_history": stress_levels, # Return raw list for charting
+        "strategy_stats": strategy_stats
     }
 
 
-def record_api_access(endpoint: str, status: str, latency_ms: int, error: str | None = None) -> None:
+def record_api_access(endpoint: str, status: str, latency_ms: int, error: Optional[str] = None) -> None:
     """
     Record an API access event for monitoring.
 
@@ -158,14 +221,14 @@ def record_api_access(endpoint: str, status: str, latency_ms: int, error: str | 
         "endpoint": endpoint,
         "status": status,
         "latency_ms": latency_ms,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now().isoformat(),
     }
     if error:
         data["error"] = error
     _metrics_doc(uid, dk).collection("events").add(data)
 
 
-def record_security_event(kind: str, metadata: Dict[str, Any] | None = None) -> None:
+def record_security_event(kind: str, metadata: Optional[Dict[str, Any]] = None) -> None:
     """
     Record a security-related event (e.g., api_key_saved, api_key_deleted, api_key_rotated, api_key_access).
     """
@@ -173,7 +236,7 @@ def record_security_event(kind: str, metadata: Dict[str, Any] | None = None) -> 
     dk = _date_key()
     data = {
         "kind": kind,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now().isoformat(),
     }
     if metadata:
         data.update({f"meta_{k}": v for k, v in metadata.items()})
@@ -190,7 +253,7 @@ def enforce_rate_limit(user_id: str, limit_per_minute: int = None) -> bool:
         if not db:
             return True
         limit = int(os.getenv("API_RATE_LIMIT_PER_MINUTE", "60")) if limit_per_minute is None else limit_per_minute
-        now = datetime.utcnow()
+        now = datetime.now()
         minute_key = now.strftime("%Y%m%d%H%M")
         doc_ref = db.collection("users").document(user_id).collection("metrics").document("rate_limits").collection("minutes").document(minute_key)
         snap = doc_ref.get()

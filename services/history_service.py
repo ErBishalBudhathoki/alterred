@@ -13,7 +13,7 @@ Design Decisions:
   rather than complex Firestore indexes, for simplicity in early dev.
 - Supports date range filtering and text search within events.
 """
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
 
 from services.firebase_client import get_client
@@ -84,15 +84,24 @@ def get_events_for_session(user_id: str, app_name: str, session_id: str, start_i
     return events
 
 
-def yesterday_range() -> (str, str):
+def yesterday_range(tz_name: Optional[str] = None) -> Tuple[str, str]:
     """
     Helper to get the ISO timestamp range for yesterday (00:00:00 to 23:59:59).
     
+    Parameters:
+        tz_name (Optional[str]): IANA timezone name to compute day boundaries.
     Returns:
         tuple(str, str): (start_iso, end_iso)
     """
-    today = datetime.now().date()
-    y = today - timedelta(days=1)
+    try:
+        if tz_name:
+            from zoneinfo import ZoneInfo
+            now = datetime.now(ZoneInfo(tz_name)).replace(microsecond=0)
+        else:
+            now = datetime.now().astimezone().replace(microsecond=0)
+    except Exception:
+        now = datetime.now().astimezone().replace(microsecond=0)
+    y = (now.date() - timedelta(days=1))
     start = datetime(y.year, y.month, y.day, 0, 0, 0).isoformat()
     end = datetime(y.year, y.month, y.day, 23, 59, 59).isoformat()
     return start, end

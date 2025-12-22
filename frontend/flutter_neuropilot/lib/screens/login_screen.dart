@@ -78,7 +78,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           msg = 'This user account has been disabled.';
           break;
         case 'invalid-credential':
-          msg = 'Invalid credentials. If you signed up with Google, please use that button.';
+          msg =
+              'Invalid credentials. If you signed up with Google, please use that button.';
           break;
         default:
           msg = 'Login failed: ${e.message}';
@@ -100,7 +101,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() => _loading = false);
     if (!ok) {
       NpSnackbar.show(context, 'Google sign-in failed',
-          type: NpSnackType.warning);
+          type: NpSnackType.destructive);
       return;
     }
     Navigator.of(context).pushNamedAndRemoveUntil(Routes.chat, (r) => false);

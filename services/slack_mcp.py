@@ -20,7 +20,7 @@ Behavioral Specifications:
 - `list_messages`: Retrieves recent messages from a channel.
 """
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 try:
     from mcp import ClientSession, StdioServerParameters
