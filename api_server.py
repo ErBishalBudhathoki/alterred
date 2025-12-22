@@ -2683,7 +2683,10 @@ async def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)
                         instruction="Use Google Search to find reliable sources and provide concise summaries.",
                         tools=[_SEARCH_TOOL],
                     )
-                    runner = Runner(agent=search_agent, app_name="altered", session_service=InMemorySessionService())
+                    search_session_service = InMemorySessionService()
+                    runner = Runner(agent=search_agent, app_name="altered", session_service=search_session_service)
+                    # Create session before using it
+                    await search_session_service.create_session(app_name="altered", user_id=uid, session_id=session_id)
                     content = types.Content(role="user", parts=[types.Part(text=text)])
                     last_text = ""
                     search_tool_results: list = []

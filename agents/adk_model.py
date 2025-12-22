@@ -28,11 +28,13 @@ class Gemini(BaseGemini):
         elif kwargs.get("api_key"):
             print(f"[Gemini] Initializing Client with API Key")
         
+        # Build HttpOptions with only valid parameters
+        http_opts_kwargs: Dict[str, Any] = {}
+        if self._tracking_headers:
+            http_opts_kwargs["headers"] = self._tracking_headers
+        
         return Client(
-            http_options=types.HttpOptions(
-                headers=self._tracking_headers,
-                retry_options=self.retry_options,
-            ),
+            http_options=types.HttpOptions(**http_opts_kwargs) if http_opts_kwargs else None,
             **kwargs
         )
 
