@@ -137,7 +137,7 @@ pytest.ini
 
 # Voice models and assets (large files)
 voice_models/
-fonts/
+/fonts/
 backend/
 bin/
 UI2WORK/
