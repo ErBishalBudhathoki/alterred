@@ -5,6 +5,12 @@ from google.adk.models.google_llm import Gemini as BaseGemini
 from google.genai import types, Client
 
 class Gemini(BaseGemini):
+    """
+    Extended Gemini model that supports Vertex AI configuration.
+    
+    This class extends the base ADK Gemini model to allow explicit
+    configuration of Vertex AI project and location settings.
+    """
     vertexai: bool = False
     project: Optional[str] = None
     location: Optional[str] = None
@@ -12,7 +18,9 @@ class Gemini(BaseGemini):
 
     @cached_property
     def api_client(self) -> Client:
+        """Provides the api client with Vertex AI support."""
         kwargs: Dict[str, Any] = {}
+        
         if self.api_key:
             kwargs["api_key"] = self.api_key
         if self.vertexai:
@@ -28,15 +36,26 @@ class Gemini(BaseGemini):
         elif kwargs.get("api_key"):
             print(f"[Gemini] Initializing Client with API Key")
         
-        # Build HttpOptions with only valid parameters
+        # Get tracking headers from parent class
+        headers = {}
+        try:
+            # Access the parent's _tracking_headers which is a cached_property
+            headers = BaseGemini._tracking_headers.func(self)
+        except Exception:
+            pass
+        
+        # Build HttpOptions
         http_opts_kwargs: Dict[str, Any] = {}
-        if self._tracking_headers:
-            http_opts_kwargs["headers"] = self._tracking_headers
+        if headers:
+            http_opts_kwargs["headers"] = headers
+        if self.retry_options:
+            http_opts_kwargs["retryOptions"] = self.retry_options
         
         return Client(
             http_options=types.HttpOptions(**http_opts_kwargs) if http_opts_kwargs else None,
             **kwargs
         )
+
 
 def get_adk_model(model_name: Optional[str] = None) -> Gemini:
     """Factory to get a configured ADK Gemini model."""
