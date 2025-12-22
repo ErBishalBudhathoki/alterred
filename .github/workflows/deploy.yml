@@ -6,7 +6,7 @@ on:
       - main
   workflow_dispatch:
 
-# Require branch protection checks to pass
+# Require deployment concurrency control
 concurrency:
   group: production-deploy
   cancel-in-progress: false
@@ -22,21 +22,51 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Validate Production Secrets
+        env:
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          ADMIN_API_TOKEN: ${{ secrets.ADMIN_API_TOKEN }}
+          GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
         run: |
           echo "🔍 Validating production environment secrets..."
           
-          # All production secrets must be present
-          REQUIRED_SECRETS=(
-            "FIREBASE_API_KEY"
-            "FIREBASE_PROJECT_ID" 
-            "GOOGLE_API_KEY"
-            "ENCRYPTION_KEY"
-            "ADMIN_API_TOKEN"
-            "GOOGLE_OAUTH_CLIENT_ID"
-            "GOOGLE_OAUTH_CLIENT_SECRET"
-          )
+          # Check that all required secrets are present
+          MISSING_SECRETS=()
           
-          echo "✅ Production secrets validation passed"
+          if [ -z "$FIREBASE_API_KEY" ]; then
+            MISSING_SECRETS+=("FIREBASE_API_KEY")
+          fi
+          if [ -z "$FIREBASE_PROJECT_ID" ]; then
+            MISSING_SECRETS+=("FIREBASE_PROJECT_ID")
+          fi
+          if [ -z "$GOOGLE_API_KEY" ]; then
+            MISSING_SECRETS+=("GOOGLE_API_KEY")
+          fi
+          if [ -z "$ENCRYPTION_KEY" ]; then
+            MISSING_SECRETS+=("ENCRYPTION_KEY")
+          fi
+          if [ -z "$ADMIN_API_TOKEN" ]; then
+            MISSING_SECRETS+=("ADMIN_API_TOKEN")
+          fi
+          if [ -z "$GOOGLE_OAUTH_CLIENT_ID" ]; then
+            MISSING_SECRETS+=("GOOGLE_OAUTH_CLIENT_ID")
+          fi
+          if [ -z "$GOOGLE_OAUTH_CLIENT_SECRET" ]; then
+            MISSING_SECRETS+=("GOOGLE_OAUTH_CLIENT_SECRET")
+          fi
+          
+          if [ ${#MISSING_SECRETS[@]} -gt 0 ]; then
+            echo "❌ Missing required secrets:"
+            for secret in "${MISSING_SECRETS[@]}"; do
+              echo "  - $secret"
+            done
+            exit 1
+          fi
+          
+          echo "✅ All production secrets are present"
 
   deploy:
     needs: validate-production-secrets
@@ -77,8 +107,9 @@ jobs:
           service: ${{ env.SERVICE_NAME }}
           region: ${{ env.REGION }}
           image: ${{ env.IMAGE_TAG }}
-          flags: '--allow-unauthenticated --timeout=300 --cpu=2 --memory=2Gi'
+          flags: '--allow-unauthenticated --timeout=300 --cpu=2 --memory=2Gi --max-instances=10 --cpu-throttling --startup-cpu-boost'
           env_vars: |
+            PORT=8080
             FIREBASE_PROJECT_ID=${{ env.PROJECT_ID }}
             GCP_PROJECT_ID=${{ vars.GCP_PROJECT_ID }}
             GCP_LOCATION=${{ vars.REGION }}
@@ -101,7 +132,31 @@ jobs:
 
       - name: Verify Cloud Run service
         run: |
-          gcloud run services describe "${{ env.SERVICE_NAME }}" --region "${{ env.REGION }}" --format="value(status.url)" || exit 1
+          echo "🔍 Verifying Cloud Run deployment..."
+          
+          # Get the service URL
+          SERVICE_URL=$(gcloud run services describe "${{ env.SERVICE_NAME }}" --region "${{ env.REGION }}" --format="value(status.url)")
+          
+          if [ -z "$SERVICE_URL" ]; then
+            echo "❌ Failed to get service URL"
+            exit 1
+          fi
+          
+          echo "✅ Service URL: $SERVICE_URL"
+          
+          # Test the health endpoint
+          echo "🔍 Testing health endpoint..."
+          if curl -f -s --max-time 30 "$SERVICE_URL/health" > /dev/null; then
+            echo "✅ Health check passed"
+          else
+            echo "⚠️  Health check failed, but service is deployed"
+            echo "   This might be due to startup time or configuration issues"
+            echo "   Check the Cloud Run logs for more details"
+          fi
+          
+          # Get recent logs for debugging
+          echo "📋 Recent service logs:"
+          gcloud logs read "resource.type=cloud_run_revision AND resource.labels.service_name=${{ env.SERVICE_NAME }}" --limit=10 --format="table(timestamp,severity,textPayload)" || echo "Could not fetch logs"
 
       # Frontend Deployment
       - name: Setup Flutter

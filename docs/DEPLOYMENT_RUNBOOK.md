@@ -17,7 +17,6 @@ This runbook provides step-by-step procedures for deploying the Neuropilot appli
 
 ### General Requirements
 - [ ] All required secrets configured in GitHub
-- [ ] Branch protection rules enabled
 - [ ] CI/CD workflows passing
 - [ ] Security scans completed
 - [ ] Code review approved
@@ -208,6 +207,18 @@ curl https://api-url/health
 curl -H "Authorization: Bearer $ADMIN_TOKEN" https://api-url/health/detailed
 ```
 
+**Docker Container Health**:
+```bash
+# Check container health status
+docker ps  # Shows health status in STATUS column
+
+# View detailed health check logs
+docker inspect --format='{{json .State.Health}}' <container_id>
+
+# Test health endpoint directly
+curl -f http://localhost:8080/health
+```
+
 **Frontend Health**:
 ```bash
 # Accessibility check
@@ -262,13 +273,27 @@ gh secret set FIREBASE_API_KEY --body "new-value"
 
 **Resolution**:
 ```bash
-# Check build logs
+# Run deployment validation script first
+python test_deployment_fix.py
+
+# Check build logs (now with enhanced logging)
 gh workflow view deploy.yml --log
 
-# Test build locally
-docker build -t test-build .
+# Test build locally with detailed output
+docker build -t test-build . 2>&1 | tee build.log
+
+# Check for MCP build issues (logs are now captured)
+cd google-calendar-mcp && npm ci && npm run build
+
+# Flutter build test
 cd frontend/flutter_neuropilot && flutter build web
 ```
+
+**Docker Build Troubleshooting**:
+- Check `npm-install.log` and `npm-build.log` in build output
+- Verify `google-calendar-mcp/package.json` exists
+- Ensure Node.js dependencies are available
+- Check for permission issues with Docker daemon
 
 #### 3. Service Unreachable
 **Symptoms**: Deployed service returns 502/503 errors

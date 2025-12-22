@@ -96,28 +96,30 @@ FIREBASE_PROJECT_ID_STAGING=neuropilot-staging
 OAUTH_REDIRECT_URI_STAGING=https://neuropilot-staging.web.app/auth/google
 ```
 
-## Branch Protection Rules
+## Automated Quality Checks
 
-### Automatic Checks
-All branches (`main`, `staging`, `dev`, `development`) require:
+### CI/CD Pipeline
+All deployments include automated quality assurance:
 
-1. **Security Checks** ✅
-   - No hardcoded secrets
-   - Proper .gitignore coverage
-   - Secret configuration validation
+1. **Security Validation** ✅
+   - Secret scanning with TruffleHog
+   - Configuration validation
+   - No hardcoded credentials
 
 2. **Code Quality** ⚠️
-   - Flutter analysis passes
-   - Python linting (warnings only)
-   - No critical issues
+   - Flutter analysis and formatting
+   - Python linting with flake8
+   - Dependency vulnerability scanning
 
-3. **Test Coverage** ⚠️
-   - Flutter tests pass
-   - Python tests pass (if present)
-   - Coverage reports generated
+3. **Build Verification** ✅
+   - Docker container builds successfully
+   - All required files present
+   - Health check endpoints functional
 
-4. **Deployment Readiness** ✅ (for `main`/`staging` PRs)
-   - Required deployment files exist
+4. **Deployment Testing** ✅
+   - Service starts correctly
+   - Health endpoints respond
+   - Environment variables configured
    - Firebase configuration valid
    - Environment variables set
 
@@ -190,7 +192,7 @@ Each environment includes:
 2. **Access Control**: Use least-privilege IAM roles
 3. **Network Security**: VPC connectors for database access
 4. **Audit Logging**: All deployments and access logged
-5. **Branch Protection**: Required status checks prevent insecure deployments
+5. **Automated Testing**: CI/CD pipeline validates all changes
 
 ## Troubleshooting
 
@@ -199,7 +201,7 @@ Each environment includes:
 1. **Secret Not Found**: Check GitHub secrets are set for the environment
 2. **Firebase Deploy Fails**: Verify Firebase project exists and CLI is authenticated
 3. **Cloud Run Deploy Fails**: Check GCP project permissions and quotas
-4. **Branch Protection Blocks**: Review failed checks in GitHub Actions
+4. **Container Startup Issues**: Review Cloud Run logs and health check endpoints
 
 ### Debug Commands
 ```bash

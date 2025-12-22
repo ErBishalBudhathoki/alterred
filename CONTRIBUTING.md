@@ -106,6 +106,9 @@ git checkout -b fix/issue-number-description
 
 #### 4. Test Your Changes
 ```bash
+# Run deployment validation (checks Dockerfile, requirements, workflows)
+python test_deployment_fix.py
+
 # Run backend tests
 python -m pytest tests/
 
@@ -268,6 +271,21 @@ class TaskFlowAgent:
 - **Bug fixes**: Must include regression tests
 - **Critical paths**: Require integration tests
 - **UI components**: Should include widget tests
+- **Deployment changes**: Must pass deployment validation script
+
+### Pre-Deployment Validation
+Before deploying or creating pull requests that affect deployment:
+
+```bash
+# Run the deployment validation script
+python test_deployment_fix.py
+
+# This script validates:
+# - Dockerfile syntax and build requirements
+# - API server import integrity
+# - Requirements.txt package availability
+# - Deployment workflow YAML structure
+```
 
 ### Testing Best Practices
 ```dart

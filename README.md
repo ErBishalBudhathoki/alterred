@@ -1,7 +1,8 @@
 # Altered: Neuro-Inclusive Executive Function Companion
 
 [![Deploy to Production](https://github.com/your-username/neuropilot/actions/workflows/deploy.yml/badge.svg)](https://github.com/your-username/neuropilot/actions/workflows/deploy.yml)
-[![Branch Protection](https://github.com/your-username/neuropilot/actions/workflows/branch-protection.yml/badge.svg)](https://github.com/your-username/neuropilot/actions/workflows/branch-protection.yml)
+[![Deploy to Staging](https://github.com/your-username/neuropilot/actions/workflows/deploy-staging.yml/badge.svg)](https://github.com/your-username/neuropilot/actions/workflows/deploy-staging.yml)
+[![Deploy to Development](https://github.com/your-username/neuropilot/actions/workflows/deploy-dev.yml/badge.svg)](https://github.com/your-username/neuropilot/actions/workflows/deploy-dev.yml)
 [![Security Scan](https://github.com/your-username/neuropilot/actions/workflows/trufflehog.yml/badge.svg)](https://github.com/your-username/neuropilot/actions/workflows/trufflehog.yml)
 
 ## 🌍 Environments
@@ -209,10 +210,13 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your API keys
 
-# 4. Start backend
+# 4. Validate setup (optional but recommended)
+python test_deployment_fix.py
+
+# 5. Start backend
 uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
 
-# 5. Frontend setup (new terminal)
+# 6. Frontend setup (new terminal)
 cd frontend/flutter_neuropilot
 flutter pub get
 flutter run -d chrome --web-port=8081
@@ -331,7 +335,7 @@ This project supports three environments with automatic deployment:
 - **Security**: Enhanced monitoring and alerting
 - **URL**: `https://neuropilot-23fb5.web.app`
 
-### 🔒 Security & Branch Protection
+### 🔒 Security
 
 This repository implements comprehensive security measures:
 
@@ -339,23 +343,7 @@ This repository implements comprehensive security measures:
 - **Secret Scanning**: TruffleHog scans for hardcoded credentials
 - **Dependency Scanning**: Automated vulnerability detection
 - **Code Quality**: Flutter analysis and Python linting
-- **Branch Protection**: Required status checks before merge
-
-#### Branch Protection Rules
-| Branch | Required Checks | Approvals | Force Push |
-|--------|----------------|-----------|------------|
-| `main` | All security + quality + tests + deployment readiness | 2 | ❌ |
-| `staging` | Security + quality + tests | 1 | ❌ |
-| `dev` | Security + quality | 1 | ✅ |
-
-#### Setting Up Branch Protection
-```bash
-# Update with your GitHub username/repo
-nano scripts/setup-branch-protection.sh
-
-# Run the setup script
-./scripts/setup-branch-protection.sh
-```
+- **Environment Isolation**: Separate secrets and infrastructure per environment
 
 ### Setup Instructions
 - **System Requirements and Dependencies**:
@@ -620,7 +608,6 @@ OAUTH_REDIRECT_URI_STAGING=https://neuropilot-staging.web.app/auth/google
 - **Production**: `.github/workflows/deploy.yml` (main branch)
 - **Staging**: `.github/workflows/deploy-staging.yml` (staging branch)
 - **Development**: `.github/workflows/deploy-dev.yml` (dev branch)
-- **Security**: `.github/workflows/branch-protection.yml` (all branches)
 - **Validation**: `.github/workflows/validate-secrets.yml` (weekly + PRs)
 
 #### Deployment Triggers
@@ -741,16 +728,16 @@ gcloud iam service-accounts describe github-actions-deployer@neuropilot-23fb5.ia
 gcloud compute project-info describe --project=neuropilot-23fb5
 ```
 
-**4. Branch Protection Blocks Merge**
+**4. Deployment Issues**
 ```bash
-# Check required status checks
-gh api repos/your-username/neuropilot/branches/main/protection
+# Check Cloud Run service status
+gcloud run services describe neuropilot-api --region us-central1
 
-# View failed checks
-gh pr checks --repo your-username/neuropilot
+# View service logs
+gcloud logs read "resource.type=cloud_run_revision" --limit=50
 
-# Re-run failed workflows
-gh workflow run branch-protection.yml
+# Test health endpoint
+curl https://your-service-url/health
 ```
 
 #### Debug Commands
@@ -786,8 +773,10 @@ gh workflow list
   - Use the provided `Dockerfile` to build the backend container:
     ```bash
     docker build -t altered-backend .
-    docker run -p 8000:8000 -e GOOGLE_API_KEY=your_key altered-backend
+    docker run -p 8080:8080 -e GOOGLE_API_KEY=your_key altered-backend
     ```
+  - The container includes automatic health checks and enhanced build logging
+  - Health endpoint available at `http://localhost:8080/health`
 
 - **CI/CD Pipeline Integration Details**:
   - GitHub Actions workflow (`deploy.yml`) handles automated builds and deployments on push to `main`.
@@ -797,25 +786,14 @@ This project uses **Google Cloud Platform (Cloud Run)** for the backend and **Fi
 
 ### 7.1. Security & Configuration
 
-This project implements enterprise-grade security practices with automated scanning and branch protection.
+This project implements enterprise-grade security practices with automated scanning and environment isolation.
 
 #### 🔒 Security Features
 - **Automated Secret Scanning**: TruffleHog integration prevents credential leaks
-- **Branch Protection**: Required status checks and code reviews
 - **Dependency Scanning**: Automated vulnerability detection
 - **Environment Isolation**: Separate secrets and infrastructure per environment
 - **Workload Identity Federation**: Secure GCP authentication without service account keys
-
-#### 🛡️ Branch Protection Rules
-
-All branches are protected with automated security checks:
-
-| Check Type | Description | Blocking |
-|------------|-------------|----------|
-| **Security Validation** | Scans for hardcoded secrets and validates configuration | ✅ Critical |
-| **Code Quality** | Flutter analysis, Python linting, formatting checks | ⚠️ Warning |
-| **Test Coverage** | Unit tests, integration tests, coverage reports | ⚠️ Warning |
-| **Deployment Readiness** | Validates deployment files and configurations | ✅ Critical (main/staging) |
+- **Code Quality**: Flutter analysis and Python linting with automated checks
 
 #### Required GitHub Secrets
 Configure these in your repository settings under `Settings > Secrets and variables > Actions`:

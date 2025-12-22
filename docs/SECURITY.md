@@ -167,18 +167,19 @@ export DEBUG_MODE=true
 
 ## 🔧 Security Configuration
 
-### Branch Protection Rules
+### Automated Security Scanning
 ```bash
-# Setup branch protection
-./scripts/setup-branch-protection.sh
+# Run secret scanning locally
+trufflehog git file://. --only-verified
 
-# Verify protection status
-gh api repos/owner/neuropilot/branches/main/protection
+# Check for dependency vulnerabilities
+npm audit
+pip-audit
 ```
 
 ### Required Security Checks
 - **Secret Scanning**: No hardcoded credentials
-- **Dependency Check**: No known vulnerabilities
+- **Dependency Check**: No known vulnerabilities  
 - **Code Analysis**: Security-focused linting
 - **Access Review**: Proper authentication/authorization
 

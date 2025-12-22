@@ -9,20 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Multi-environment deployment pipeline (development, staging, production)
-- Comprehensive branch protection rules with automated security scanning
 - Environment-specific Firebase project support
 - Automated secret validation workflows
 - Enhanced security documentation and procedures
+- Docker health check with automatic monitoring (30s interval, 10s timeout)
+- Comprehensive Docker build logging and error reporting
+- Improved Cloud Run deployment with startup CPU boost and better timeout handling
+- **Deployment validation script** (`test_deployment_fix.py`) for pre-deployment checks
 
 ### Changed
 - Updated deployment workflows for better environment isolation
 - Improved .gitignore coverage for test files and sensitive data
 - Enhanced README with multi-environment setup instructions
+- Optimized Dockerfile for better layer caching (requirements installed first)
+- Improved Docker build error handling with detailed NPM logs
+- Enhanced MCP build verification with comprehensive diagnostics
+- Simplified deployment workflow by removing branch protection dependencies
+
+### Removed
+- Branch protection workflows (per user preference for development flexibility)
+- Branch protection documentation and setup scripts
 
 ### Security
 - Implemented TruffleHog secret scanning
-- Added branch protection requirements for all environments
 - Removed hardcoded credentials from repository
+- Enhanced secret validation in deployment workflows
+
+### Fixed
+- Container startup issues in Cloud Run deployment
+- Secret validation now properly checks for required environment variables
+- Improved deployment error handling and logging
 - Enhanced secret management with environment-specific configurations
 
 ## [1.0.0] - 2024-12-22
