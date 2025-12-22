@@ -19,11 +19,11 @@ Behavioral Specifications:
 - `summarize_history`: Compresses conversation history to save context window.
 """
 import os
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from dotenv import load_dotenv
 from google.genai import Client
 
-from services.tools import (
+from agents.tools import (
     analyze_brain_state,
     atomize_task,
     estimate_real_time,
@@ -35,24 +35,31 @@ from services.tools import (
 from services.calendar_mcp import create_calendar_event_intent, create_calendar_event, list_events_today, delete_event, _parse_time_natural, _parse_duration_minutes, update_event
 
 
-def _genai_client() -> Client:
+def _genai_client(user_id: Optional[str] = None) -> Client:
     """
     Initializes and returns the Gemini GenAI client.
-    
+
     Returns:
         Client: An authenticated Google GenAI client instance.
     """
     load_dotenv()
-    
-    # Prefer Vertex AI if configured
+
     project_id = os.getenv("VERTEX_AI_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
     location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
-    
+
     if project_id:
         return Client(vertexai=True, project=project_id, location=location)
-        
-    # Fallback to API Key
-    return Client(api_key=os.getenv("GOOGLE_API_KEY"))
+
+    if user_id:
+        try:
+            from services.user_settings import UserSettings
+            api_key = UserSettings(user_id).get_api_key()
+            if api_key:
+                return Client(api_key=api_key)
+        except Exception:
+            pass
+
+    raise RuntimeError("Vertex AI not configured and BYOK API key not provided.")
 
 
 def respond(user_message: str, memory, session_id: str = "session") -> Dict[str, Any]:
@@ -103,7 +110,8 @@ def respond(user_message: str, memory, session_id: str = "session") -> Dict[str,
         en = match_task_to_energy(["emails", "organize files", "write code"], 3)
         results["calls"].append({"energy": en})
 
-    client = _genai_client()
+    uid = getattr(memory, "user_id", None)
+    client = _genai_client(uid)
     prompt = (
         "You are Altered, an empathetic executive function companion. Given the user's message and tool outputs, "
         "compose a concise, supportive response with 2-4 actionable micro-steps and clear next check-in. "
@@ -130,7 +138,7 @@ def respond(user_message: str, memory, session_id: str = "session") -> Dict[str,
                     memory.store_pending_action({"type": "calendar_create", "intent": i})
 
     if any(k in lower for k in ["appointments", "events", "today", "schedule today"]):
-        list_res = list_events_today("primary")
+        list_res = list_events_today("primary", user_id=uid)
         results["calls"].append({"calendar_list_today": list_res})
         if list_res.get("ok") and list_res.get("result"):
             events = list_res["result"].get("events", [])
@@ -147,7 +155,7 @@ def respond(user_message: str, memory, session_id: str = "session") -> Dict[str,
     if any(s in lower for s in deletion_synonyms):
         events = memory.get_calendar_events_today() if memory else []
         if not events:
-            list_res = list_events_today("primary")
+            list_res = list_events_today("primary", user_id=uid)
             results["calls"].append({"calendar_list_today": list_res})
             if list_res.get("ok") and list_res.get("result"):
                 events = list_res["result"].get("events", [])
@@ -194,7 +202,7 @@ def respond(user_message: str, memory, session_id: str = "session") -> Dict[str,
         events = memory.get_calendar_events_today() if memory else []
         target = None
         if not events:
-            lr = list_events_today("primary")
+            lr = list_events_today("primary", user_id=uid)
             results["calls"].append({"calendar_list_today": lr})
             if lr.get("ok") and lr.get("result"):
                 events = lr["result"].get("events", [])
@@ -251,7 +259,7 @@ def respond(user_message: str, memory, session_id: str = "session") -> Dict[str,
     ]
 
     try:
-        gen = client.models.generate_content(model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest"), contents=contents)
+        gen = client.models.generate_content(model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash"), contents=contents)
         text = getattr(gen, "text", "")
     except Exception:
         text = "I attempted to process your request. Based on the tools: \n" + str(results)[:800]
@@ -275,9 +283,10 @@ def summarize_history(memory, session_id: str):
         if not msgs:
             return
         formatted = "\n".join([f"{m.get('role')}: {m.get('text')}" for m in msgs])
-        client = _genai_client()
+        uid = getattr(memory, "user_id", None)
+        client = _genai_client(uid)
         resp = client.models.generate_content(
-            model=os.getenv("DEFAULT_MODEL", "gemini-flash-latest"),
+            model=os.getenv("DEFAULT_MODEL", "gemini-2.5-flash"),
             contents=[{"role": "user", "parts": [{"text": f"Summarize concisely:\n{formatted}"}]}]
         )
         summary = getattr(resp, "text", "")

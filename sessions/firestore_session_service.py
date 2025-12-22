@@ -47,7 +47,7 @@ class FirestoreSessionService(InMemorySessionService):
         """
         Persists an event with content parts and tool call info.
         """
-        now = datetime.utcnow().isoformat()
+        now = datetime.now().isoformat()
         ev = SessionEvent(id=now, author=author, content=[content_parts], tool_calls=[tool_calls] if tool_calls else [], created_at=now)
         self.storage.append_event(app_name, user_id, session_id, ev)
 

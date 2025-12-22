@@ -6,6 +6,7 @@ import 'package:altered/l10n/app_localizations.dart';
 import 'package:altered/screens/settings_screen.dart';
 import 'package:altered/state/auth_state.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 // Flutter test binding imported via flutter_test
 
 // Widget test for Settings persistence.
@@ -21,6 +22,7 @@ void main() {
       tester.view.resetDevicePixelRatio();
     });
     SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
@@ -46,9 +48,14 @@ void main() {
 
     await tester.pump();
 
-    final p = await SharedPreferences.getInstance();
-    expect(p.getInt('pulse_threshold_percent'), isNotNull);
-    expect(p.getInt('pulse_speed_ms'), isNotNull);
-    expect(p.getDouble('pulse_max_freq'), isNotNull);
+    await tester.pump(const Duration(milliseconds: 200));
+
+    const storage = FlutterSecureStorage();
+    final speed = await storage.read(key: 'pulse_speed_ms');
+    final threshold = await storage.read(key: 'pulse_threshold_percent');
+    final maxFreq = await storage.read(key: 'pulse_max_freq');
+    expect(speed, isNotNull);
+    expect(threshold, isNotNull);
+    expect(maxFreq, isNotNull);
   });
 }

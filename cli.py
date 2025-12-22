@@ -98,7 +98,7 @@ def main():
 
         if user_message.lower().startswith("/cleanup expired"):
             try:
-                marked = storage.expire_sessions(datetime.utcnow())
+                marked = storage.expire_sessions(datetime.now())
                 deleted = 0
                 if "delete" in user_message.lower():
                     deleted = storage.delete_expired()
@@ -123,11 +123,11 @@ def main():
         if user_message.lower().startswith("/yesterday tasks"):
             try:
                 from datetime import datetime, timedelta
-                y = (datetime.utcnow().date() - timedelta(days=1)).isoformat()
+                y = (datetime.now().date() - timedelta(days=1)).isoformat()
                 logs = memory.get_tasks_by_date(y)
                 print(f"Yesterday tasks ({len(logs)}):")
-                for l in logs:
-                    print(f"- [{l.get('status')}] {l.get('title')} (session {l.get('session_id')})")
+                for log in logs:
+                    print(f"- [{log.get('status')}] {log.get('title')} (session {log.get('session_id')})")
             except Exception as e:
                 print(f"Yesterday tasks error: {e}")
             continue
@@ -154,7 +154,7 @@ def main():
 
         if user_message.lower().startswith("/metrics overview"):
             from datetime import datetime
-            dk = datetime.utcnow().date().isoformat()
+            dk = datetime.now().date().isoformat()
             try:
                 ov = compute_daily_overview(user_id, dk)
                 print(f"Metrics {dk}: {ov}")

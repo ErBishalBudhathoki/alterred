@@ -63,7 +63,7 @@ def test_vertex_route_success(mock_auth, mock_credit_service, mock_wrapper):
     assert response.status_code == 200
     assert response.json()["text"] == "Test response"
     # wrapper returns mode="vertex_ai", so credits_used should be True
-    assert response.json()["credits_used"] == True 
+    assert bool(response.json()["credits_used"]) is True
     
     mock_credit_service.get_balance.assert_called_with("test_user")
 
@@ -85,7 +85,7 @@ def test_byok_route_success(mock_auth, mock_user_settings, mock_wrapper):
     
     assert response.status_code == 200
     assert response.json()["text"] == "Test response"
-    assert response.json()["credits_used"] == False
+    assert bool(response.json()["credits_used"]) is False
 
 def test_byok_route_no_key(mock_auth, mock_user_settings):
     mock_user_settings.has_custom_api_key.return_value = False

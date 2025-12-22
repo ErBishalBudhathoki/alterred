@@ -13,9 +13,9 @@ class TestVertexModelResolution(unittest.TestCase):
                 del os.environ[k]
 
     def test_model_from_env_default(self):
-        os.environ["DEFAULT_MODEL"] = "gemini-flash-latest"
+        os.environ["DEFAULT_MODEL"] = "gemini-2.5-flash"
         m = resolve_model_name(None)
-        self.assertEqual(m, "gemini-flash-latest")
+        self.assertEqual(m, "gemini-2.5-flash")
 
     def test_model_from_github_actions(self):
         os.environ["DEFAULT_MODEL"] = ""
@@ -25,14 +25,14 @@ class TestVertexModelResolution(unittest.TestCase):
         self.assertEqual(m, "gemini-2.0-pro-exp")
 
     def test_model_pref_parameter_precedence(self):
-        os.environ["DEFAULT_MODEL"] = "gemini-flash-latest"
+        os.environ["DEFAULT_MODEL"] = "gemini-2.5-flash"
         m = resolve_model_name("gemini-2.0-flash-exp")
         self.assertEqual(m, "gemini-2.0-flash-exp")
 
     def test_model_missing_configs_fallback(self):
         os.environ["DEFAULT_MODEL"] = ""
         m = resolve_model_name(None)
-        self.assertEqual(m, "gemini-2.0-flash-exp")
+        self.assertEqual(m, "gemini-2.0-flash")
 
     def test_invalid_values_ignored(self):
         os.environ["DEFAULT_MODEL"] = ""
@@ -40,7 +40,7 @@ class TestVertexModelResolution(unittest.TestCase):
         os.environ["GITHUB_DEFAULT_MODEL"] = ""
         os.environ["MODEL_NAME"] = ""
         m = resolve_model_name(None)
-        self.assertEqual(m, "gemini-2.0-flash-exp")
+        self.assertEqual(m, "gemini-2.0-flash")
 
 
 if __name__ == "__main__":

@@ -15,5 +15,5 @@ def test_firestore_session_create_and_retrieve(monkeypatch):
     got = storage.get_session("app", "user", "sess_test")
     assert got["state"]["foo"] == "bar"
     assert got["events"][0].author == "user"
-    count = storage.expire_sessions(datetime.utcnow() + timedelta(days=2))
+    count = storage.expire_sessions(datetime.now() + timedelta(days=2))
     assert count >= 0

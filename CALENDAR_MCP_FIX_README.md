@@ -1,12 +1,12 @@
 # Calendar MCP Validation Fix
 
 ## Overview
-This document details the resolution for the recurring calendar MCP validation issues (specifically "Invalid Grant" errors and `datetime.utcnow()` deprecation warnings).
+This document details the resolution for the recurring calendar MCP validation issues (specifically "Invalid Grant" errors and `datetime` deprecation warnings).
 
 ## Root Cause Analysis
 The persistent MCP validation failures were caused by:
 1.  **Invalid Grant Loop**: When a refresh token became invalid (revoked or expired), the system attempted to refresh it, failed, but didn't clean up the invalid credentials. Subsequent attempts continued to use the bad token, leading to a loop of failures.
-2.  **Timezone Naive Datetimes**: The codebase mixed timezone-naive `datetime.utcnow()` with timezone-aware datetimes, leading to potential calculation errors and deprecation warnings.
+2.  **Timezone Naive Datetimes**: The codebase mixed timezone-naive `datetime` with timezone-aware datetimes, leading to potential calculation errors and deprecation warnings.
 3.  **Lack of Visibility**: Error logging was minimal, making it difficult to diagnose why the MCP tool check was failing silently or with generic errors.
 
 ## Solution Implemented
@@ -16,7 +16,7 @@ The persistent MCP validation failures were caused by:
 - **Force Re-authentication**: By deleting invalid tokens, the system forces a fresh login flow on the next attempt, resolving the "death loop".
 
 ### 2. Timezone Awareness
-- Replaced all instances of `datetime.utcnow()` with `datetime.now(timezone.utc)` in:
+- Replaced all instances of `datetime` with `datetime.now(timezone)` in:
     - `services/calendar_mcp.py`
     - `services/oauth_handlers.py`
     - `tests/test_calendar_mcp_auth.py`

@@ -16,6 +16,18 @@ class StubUserSettings:
     def is_oauth_connected(self, provider: str) -> bool:
         return True
 
+    def has_oauth_tokens(self, provider: str) -> bool:
+        return bool(self.get_oauth_tokens(provider))
+
+    def get_oauth_token_metadata(self, provider: str):
+        tokens = self.get_oauth_tokens(provider)
+        if not tokens:
+            return {}
+        return {"expires_at": tokens.get("expires_at"), "scopes": tokens.get("scopes", [])}
+
+    def save_oauth_tokens(self, provider: str, access_token: str, refresh_token: str, expires_at: str, scopes=None):
+        return {"ok": True}
+
     def get_oauth_tokens(self, provider: str):
         return {
             "provider": provider,

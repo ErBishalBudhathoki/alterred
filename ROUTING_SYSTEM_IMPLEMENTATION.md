@@ -104,7 +104,7 @@ Tests were executed locally using `pytest`. The `byok_routes.py` fix was validat
 ## 6. Future Considerations
 
 ### Immediate Actions
--   **Deprecation Updates**: Replace usage of `datetime.utcnow()` with `datetime.now(datetime.timezone.utc)` to address Python warnings.
+-   **Deprecation Updates**: Replace usage of `datetime` with `datetime.now(datetime.timezone)` to address Python warnings.
 
 ### Enhancements
 -   **Frontend Integration**: Connect the new API endpoints to the chat interface.

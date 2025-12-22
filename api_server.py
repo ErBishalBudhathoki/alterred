@@ -19,6 +19,23 @@ Architecture:
     - Agents (TaskFlow, TimePerception, EnergySensory, DecisionSupport)
     - External Tools (Calendar, Metrics)
 
+Timezone & Calendar:
+--------------------
+- **Client Timezone Propagation:** The server respects the user's device timezone by reading
+  the `X-Client-Timezone` header (IANA name) and, when needed, `X-Client-Offset-Minutes`.
+  Time computations use `zoneinfo.ZoneInfo` when available, falling back to the offset header.
+- **Calendar MCP Integration:** All calendar endpoints forward the client timezone via
+  `timeZone` in MCP payloads to ensure correct event creation, updates, listings, free/busy,
+  and analysis across DST boundaries.
+- **Endpoints (selected):**
+  - `/mcp/calendar/v1/list`, `/mcp/calendar/v1/search`, `/mcp/calendar/v1/analyze`,
+    `/mcp/calendar/v1/availability` — listing, filtering, analysis, and free-time computation.
+  - `/mcp/calendar/v1/create/batch`, `/mcp/calendar/v1/create/recurring` — creation APIs.
+  - `/mcp/calendar/v1/update`, `/mcp/calendar/v1/update/recurring` — single and series updates
+    with proper scope mapping (instance, following, all).
+  - `/mcp/calendar/v1/delete`, `/mcp/calendar/v1/get`, `/mcp/calendar/v1/colors`,
+    `/mcp/calendar/v1/freebusy`, `/mcp/calendar/v1/time` — utility operations.
+
 Design Decisions:
 -----------------
 - **Statelessness:** The API is designed to be largely stateless, relying on the database
@@ -34,42 +51,95 @@ Behavioral Specifications:
 - **Output:** JSON responses. Standard HTTP status codes are used.
 - **Error Handling:** FastAPI's default exception handling is leveraged, but specific
   services may raise exceptions that should be handled (though currently mostly implicit).
+ - **Timezone Behavior:** When `X-Client-Timezone` is present, date/time parsing and calendar
+   operations use `ZoneInfo` for accurate local times; otherwise the server uses
+   `X-Client-Offset-Minutes` when provided.
 """
 
 import os
 import sys
-print(f"DEBUG: sys.path: {sys.path}")
-print(f"DEBUG: CWD: {os.getcwd()}")
-try:
-    print(f"DEBUG: Files in CWD: {os.listdir('.')}")
-except Exception as e:
-    print(f"DEBUG: Failed to list CWD: {e}")
+import time
+import asyncio
 
 from uuid import uuid4
+import logging
 from dotenv import load_dotenv
 
+# Load environment variables immediately to ensure all modules have access to them
 load_dotenv()
 
-from fastapi import FastAPI, Body, Request, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Dict, Any, Optional
-from datetime import datetime, timezone
+# CRITICAL FIX: Remove GOOGLE_API_KEY to force Vertex AI usage
+# Must match the same logic in adk_app.py
+# api_server.py imports adk_app.py, and load_dotenv() re-loads the key from .env
+# So we must delete it here too to prevent GEMINI_API backend selection
+force_vertex = (os.getenv("FORCE_VERTEX_AI", "").lower() == "true")
+if force_vertex and "GOOGLE_API_KEY" in os.environ:
+    print("[API SERVER] Removing GOOGLE_API_KEY to force Vertex AI backend")
+    del os.environ["GOOGLE_API_KEY"]
 
-from services.history_service import yesterday_range, get_sessions_by_date, get_events_for_session
-from services.auth import get_user_id_from_request
-from services.memory_bank_service import get_patterns
-from services.compaction_service import compact_session
-from agents.taskflow_agent import schedule_tasks
-from services.tools import atomize_task, reduce_options
-from agents.time_perception_agent import create_countdown
-from fastapi.responses import JSONResponse, RedirectResponse
-from services.timer_store import store_countdown
-from agents.energy_sensory_agent import detect_sensory_overload
-from agents.decision_support_agent import paralysis_protocol
-from services.tools import match_task_to_energy
-from services.external_brain_store import store_voice_task, get_context, list_voice_tasks
-from services.a2a_service import connect_partner, post_update
-from services.metrics_service import compute_daily_overview, record_api_access
+from fastapi import (  # noqa: E402
+    FastAPI, Body, Request, Depends, HTTPException, status,
+    UploadFile, File, Form, Response, WebSocket, WebSocketDisconnect
+)
+import json  # noqa: E402
+import httpx  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from typing import List, Dict, Any, Optional  # noqa: E402
+from datetime import datetime  # noqa: E402
+
+from services.history_service import get_sessions_by_date, get_events_for_session  # noqa: E402
+from services.auth import get_user_id_from_request  # noqa: E402
+from services.memory_bank_service import get_patterns  # noqa: E402
+from services.memory_bank import FirestoreMemoryBank  # noqa: E402
+from services.compaction_service import compact_session  # noqa: E402
+from agents.taskflow_agent import schedule_tasks  # noqa: E402
+from agents.tools import atomize_task, reduce_options  # noqa: E402
+from agents.time_perception_agent import create_countdown, reality_calibrator, check_upcoming_conflicts  # noqa: E402
+from fastapi.responses import JSONResponse, RedirectResponse, HTMLResponse  # noqa: E402
+from services.timer_store import store_countdown  # noqa: E402
+from agents.energy_sensory_agent import detect_sensory_overload  # noqa: E402
+from agents.decision_support_agent import paralysis_protocol  # noqa: E402
+from agents.tools import match_task_to_energy  # noqa: E402
+from services.external_brain_store import store_voice_task, get_context, list_voice_tasks  # noqa: E402
+from services.a2a_service import (  # noqa: E402
+    connect_partner, post_update, list_updates, disconnect_partner,
+    list_partners, get_or_create_partner_id, set_selected_partner,
+    get_selected_partner, set_default_partner, get_default_partner
+)
+from services.metrics_service import (  # noqa: E402
+    compute_daily_overview,
+    record_api_access,
+    record_model_usage,
+    record_task_completion,
+    record_decision_resolution,
+    record_hyperfocus_interrupt,
+    record_agent_latency,
+    record_stress_level,
+    record_strategy_effectiveness
+)
+from services.oauth_handlers import GoogleOAuthHandler  # noqa: E402
+from services.user_settings import UserSettings  # noqa: E402
+from adk_app import adk_respond, current_user_timezone  # noqa: E402
+from services.chat_commands import (  # noqa: E402
+    parse as parse_chat_command,
+    execute as execute_chat_command,
+    help as chat_help
+)
+from services.country_service import get_country_info  # noqa: E402
+from routers.vertex_routes import router as vertex_router  # noqa: E402
+from routers.byok_routes import router as byok_router  # noqa: E402
+from routers.tasks_router import router as tasks_router  # noqa: E402
+from routers.notion_routes import router as notion_router  # noqa: E402
+import services.firebase_client as firebase_client  # noqa: E402
+from services.vertex_ai_client import VertexAIClient  # noqa: E402
+from services.piper_service import PiperService  # noqa: E402
+from services.google_tts_service import GoogleTtsService  # noqa: E402
+from services.google_stt_service import GoogleSttService  # noqa: E402
+from services.voice_manager import VoiceManager  # noqa: E402
+from services.gemini_live_service import GeminiLiveService, handle_voice_websocket
+
+logger = logging.getLogger(__name__)
 
 # Wrap calendar MCP imports in try-except to prevent import failures from crashing the API
 # This allows the server to start even if MCP dependencies are missing or misconfigured
@@ -87,6 +157,12 @@ try:
         batch_create_events,
         create_recurring_event,
         update_recurring_event,
+        update_event_payload,
+        delete_event,
+        get_event,
+        list_colors,
+        get_freebusy,
+        get_current_time,
         find_availability,
         search_events,
         analyze_calendar,
@@ -96,29 +172,50 @@ try:
     print("✓ Calendar MCP module loaded successfully")
 except Exception as e:
     print(f"⚠ Calendar MCP module failed to import: {e}")
-    print(f"  Calendar endpoints will return 503 Service Unavailable")
+    print("  Calendar endpoints will return 503 Service Unavailable")
     _CALENDAR_MCP_ERROR = str(e)
     # Define stub functions that return error responses
     def _mcp_unavailable_response():
         return {"ok": False, "error": f"Calendar MCP unavailable: {_CALENDAR_MCP_ERROR}"}
-    
-    list_events_today = lambda *args, **kwargs: _mcp_unavailable_response()
-    check_mcp_ready = lambda *args, **kwargs: _mcp_unavailable_response()
-    account_status = lambda *args, **kwargs: _mcp_unavailable_response()
-    account_clear = lambda *args, **kwargs: _mcp_unavailable_response()
-    account_migrate = lambda *args, **kwargs: _mcp_unavailable_response()
-    list_events_from_calendars = lambda *args, **kwargs: _mcp_unavailable_response()
-    batch_create_events = lambda *args, **kwargs: _mcp_unavailable_response()
-    create_recurring_event = lambda *args, **kwargs: _mcp_unavailable_response()
-    update_recurring_event = lambda *args, **kwargs: _mcp_unavailable_response()
-    find_availability = lambda *args, **kwargs: _mcp_unavailable_response()
-    search_events = lambda *args, **kwargs: _mcp_unavailable_response()
-    analyze_calendar = lambda *args, **kwargs: _mcp_unavailable_response()
-    extract_event_from_image = lambda *args, **kwargs: _mcp_unavailable_response()
 
-from services.oauth_handlers import GoogleOAuthHandler
-from services.user_settings import UserSettings
-from adk_app import adk_respond
+    def list_events_today(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def check_mcp_ready(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def account_status(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def account_clear(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def account_migrate(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def list_events_from_calendars(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def batch_create_events(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def create_recurring_event(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def update_recurring_event(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def find_availability(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def search_events(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def analyze_calendar(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def extract_event_from_image(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def delete_event(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def update_event_payload(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def get_event(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def list_colors(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def get_freebusy(*args, **kwargs):
+        return _mcp_unavailable_response()
+    def get_current_time(*args, **kwargs):
+        return _mcp_unavailable_response()
 
 try:
     from google.adk.tools.google_search_tool import GoogleSearchTool
@@ -131,13 +228,102 @@ try:
 except ImportError:
     _SEARCH_TOOL = None
 
-from services.chat_commands import parse as parse_chat_command, execute as execute_chat_command, help as chat_help
-from routers.vertex_routes import router as vertex_router
-from routers.byok_routes import router as byok_router
-import services.firebase_client as firebase_client
 
 
-app = FastAPI(title="Altered API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    load_dotenv()
+    print("=" * 80)
+    print("🚀 Altered API Server Starting...")
+    print("=" * 80)
+
+    print(f"📍 Python version: {sys.version}")
+    print(f"📍 Working directory: {os.getcwd()}")
+    print(f"📍 PORT environment variable: {os.getenv('PORT', 'NOT SET')}")
+
+    env_vars = [
+        "FIREBASE_PROJECT_ID",
+        "GCP_PROJECT_ID",
+        "GOOGLE_CLOUD_PROJECT",
+        "VERTEX_AI_PROJECT_ID",
+        "VERTEX_AI_LOCATION",
+        "DEFAULT_MODEL",
+        "GOOGLE_API_KEY",
+        "GOOGLE_OAUTH_CLIENT_ID",
+    ]
+    print("\n📋 Environment Variables:")
+    for var in env_vars:
+        value = os.getenv(var)
+        if value:
+            if "KEY" in var or "SECRET" in var:
+                print(f"  ✓ {var}: ***{value[-4:]}")
+            else:
+                print(f"  ✓ {var}: {value}")
+        else:
+            print(f"  ✗ {var}: NOT SET")
+
+    print(f"\n📅 Calendar MCP Status: {'✓ Available' if _CALENDAR_MCP_AVAILABLE else '✗ Unavailable'}")
+    if not _CALENDAR_MCP_AVAILABLE and _CALENDAR_MCP_ERROR:
+        print(f"   Error: {_CALENDAR_MCP_ERROR}")
+
+    mcp_path = os.path.join(os.getcwd(), "google-calendar-mcp")
+    if os.path.exists(mcp_path):
+        print(f"✓ google-calendar-mcp directory exists at: {mcp_path}")
+        build_path = os.path.join(mcp_path, "build", "index.js")
+        if os.path.exists(build_path):
+            print("✓ MCP build artifact exists")
+        else:
+            print(f"✗ MCP build artifact NOT found at: {build_path}")
+    else:
+        print("✗ google-calendar-mcp directory NOT found")
+
+    print(f"\n🔍 Google Search Tool: {'✓ Available' if _SEARCH_TOOL else '✗ Not available'}")
+
+    PiperService.initialize()
+
+    default_model = os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")
+    force_vertex = os.getenv("FORCE_VERTEX_AI", "").lower() == "true"
+    vertex_region = os.getenv("VERTEX_AI_LOCATION", "NOT SET")
+
+    print("\n🤖 Model Configuration:")
+    print(f"   Model: {default_model}")
+    print(f"   Force Vertex AI: {force_vertex}")
+    print(f"   Vertex AI Region: {vertex_region}")
+
+    if default_model == "gemini-2.5-flash" and force_vertex:
+        print(f"   ⚠️  WARNING: 'gemini-2.5-flash' may not be available in Vertex AI {vertex_region}")
+        print("   💡 Recommended: Set DEFAULT_MODEL GitHub variable to 'gemini-2.0-flash' or 'gemini-2.5-flash'")
+    elif default_model == "gemini-2.5-flash":
+        print("   ℹ️  Gemini API direct mode would be used if BYOK provided; otherwise disabled")
+
+    # Runtime service validation
+    print("\n🔎 Runtime Service Validation:")
+    v_client = VertexAIClient()
+    if v_client.vertex_ai_available:
+        print(f"   ✓ Vertex AI is initialized for project: {v_client.project_id} in {v_client.location}")
+    else:
+        print("   ✗ Vertex AI not initialized (missing project/location or aiplatform SDK)")
+
+    if os.getenv("GOOGLE_API_KEY"):
+        print("   ⚠️ GOOGLE_API_KEY detected in environment; runtime usage is disabled except for BYOK operations")
+
+    if firebase_client.init_firebase():
+        print("\n🔥 Firebase initialized successfully")
+    else:
+        print("\n❌ Firebase initialization FAILED")
+
+    print("\n" + "=" * 80)
+    print("✅ Altered API Server startup complete - ready to accept connections")
+    print("=" * 80)
+
+    try:
+        yield
+    finally:
+        # Optional: graceful shutdown logs
+        print("Altered API Server shutting down...")
+
+app = FastAPI(title="Altered API", lifespan=lifespan)
 
 # Configure CORS to allow requests from any origin.
 # In production, this should be restricted to specific domains for security.
@@ -151,89 +337,315 @@ app.add_middleware(
 
 app.include_router(vertex_router)
 app.include_router(byok_router)
+app.include_router(tasks_router)
+app.include_router(notion_router)
 
 
-@app.on_event("startup")
-async def startup_event():
+@app.post("/tts/speak")
+async def tts_speak(request: Request, payload: Dict[str, Any] = Body(...)):
     """
-    Startup event handler for logging and diagnostics.
-    This runs when the FastAPI application starts up.
+    Synthesize text to speech using Piper TTS.
+    
+    Args:
+        payload (Dict[str, Any]): JSON payload containing:
+            - "text": Text to speak.
+            - "speed": Speaking rate (optional, default 1.0).
+            - "voice": Voice ID (optional, default en_US-lessac).
+            - "quality": Quality (optional, default low).
+            - "noise_scale": Generator noise (optional, default 0.667).
+            - "noise_w": Phoneme width noise (optional, default 0.8).
+            
+    Returns:
+        Response: Audio data (audio/wav) or error JSON.
     """
-    print("=" * 80)
-    print("🚀 Altered API Server Starting...")
-    print("=" * 80)
-    
-    # Log environment information
-    print(f"📍 Python version: {sys.version}")
-    print(f"📍 Working directory: {os.getcwd()}")
-    print(f"📍 PORT environment variable: {os.getenv('PORT', 'NOT SET')}")
-    
-    # Log critical environment variables (masked)
-    env_vars = [
-        "FIREBASE_PROJECT_ID",
-        "GCP_PROJECT_ID",
-        "GOOGLE_CLOUD_PROJECT",
-        "DEFAULT_MODEL",
-        "GOOGLE_API_KEY",
-        "GOOGLE_OAUTH_CLIENT_ID"
-    ]
-    print("\n📋 Environment Variables:")
-    for var in env_vars:
-        value = os.getenv(var)
-        if value:
-            if "KEY" in var or "SECRET" in var:
-                print(f"  ✓ {var}: ***{value[-4:]}")
-            else:
-                print(f"  ✓ {var}: {value}")
-        else:
-            print(f"  ✗ {var}: NOT SET")
-    
-    # Log MCP status
-    print(f"\n📅 Calendar MCP Status: {'✓ Available' if _CALENDAR_MCP_AVAILABLE else '✗ Unavailable'}")
-    if not _CALENDAR_MCP_AVAILABLE and _CALENDAR_MCP_ERROR:
-        print(f"   Error: {_CALENDAR_MCP_ERROR}")
-    
-    # Check if google-calendar-mcp directory exists
-    mcp_path = os.path.join(os.getcwd(), "google-calendar-mcp")
-    if os.path.exists(mcp_path):
-        print(f"✓ google-calendar-mcp directory exists at: {mcp_path}")
-        build_path = os.path.join(mcp_path, "build", "index.js")
-        if os.path.exists(build_path):
-            print(f"✓ MCP build artifact exists")
-        else:
-            print(f"✗ MCP build artifact NOT found at: {build_path}")
-    else:
-        print(f"✗ google-calendar-mcp directory NOT found")
-    
-    # Log search tool status
-    print(f"\n🔍 Google Search Tool: {'✓ Available' if _SEARCH_TOOL else '✗ Not available'}")
-    
-    # Log model configuration
-    default_model = os.getenv("DEFAULT_MODEL", "gemini-2.0-flash")
-    force_vertex = os.getenv("FORCE_VERTEX_AI", "").lower() == "true"
-    vertex_region = os.getenv("VERTEX_AI_LOCATION", "NOT SET")
-    
-    print(f"\n🤖 Model Configuration:")
-    print(f"   Model: {default_model}")
-    print(f"   Force Vertex AI: {force_vertex}")
-    print(f"   Vertex AI Region: {vertex_region}")
-    
-    # Warn if using default fallback with Vertex AI
-    if default_model == "gemini-flash-latest" and force_vertex:
-        print(f"   ⚠️  WARNING: 'gemini-flash-latest' may not be available in Vertex AI {vertex_region}")
-        print(f"   💡 Recommended: Set DEFAULT_MODEL GitHub variable to 'gemini-2.0-flash' or 'gemini-2.5-flash'")
-    elif default_model == "gemini-flash-latest":
-        print(f"   ℹ️  Using Gemini API (not Vertex AI)")
+    rid = uuid4().hex
+    uid = get_user_id_from_request(request) if request else _uid(None)
 
-    # Initialize Firebase
-    if firebase_client.init_firebase():
-        print("\n🔥 Firebase initialized successfully")
-    else:
-        print("\n❌ Firebase initialization FAILED")
-    
-    print("\n" + "=" * 80)
-    print("✅ Altered API Server startup complete - ready to accept connections")
-    print("=" * 80)
+    text = payload.get("text", "")
+    try:
+        speed = float(payload.get("speed", 1.0))
+        voice = payload.get("voice", "en_US-lessac")
+        quality = payload.get("quality", "low")
+        noise_scale = float(payload.get("noise_scale", 0.667))
+        noise_w = float(payload.get("noise_w", 0.8))
+    except Exception as e:
+        logger.warning(
+            "TTS invalid payload rid=%s uid=%s error=%s",
+            rid,
+            uid,
+            str(e),
+        )
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "invalid_payload", "request_id": rid},
+        )
+
+    if not text:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "error": "empty_text", "request_id": rid},
+        )
+
+    # Check voice provider
+    voice_info = VoiceManager.get_voice_info(voice)
+    provider = voice_info.get("provider", "piper") if voice_info else "piper"
+    logger.info(
+        "TTS request rid=%s uid=%s provider=%s voice=%s quality=%s speed=%s chars=%s",
+        rid,
+        uid,
+        provider,
+        voice,
+        quality,
+        speed,
+        len(text),
+    )
+
+    import asyncio
+    loop = asyncio.get_running_loop()
+
+    try:
+        if provider == "google":
+            # voice is the key e.g., en-US-Neural2-C
+            logger.info(f"Routing TTS to Google voice={voice}")
+            audio_data = await loop.run_in_executor(
+                None,
+                GoogleTtsService.synthesize,
+                text,
+                voice,  # voice name
+                voice_info.get("language", "en-US")
+                .replace("English (US)", "en-US")
+                .replace("English (GB)", "en-GB"),
+                speed,
+            )
+        else:
+            # Default to Piper
+            logger.info(f"Routing TTS to Piper voice={voice} quality={quality}")
+            audio_data = await loop.run_in_executor(
+                None,
+                PiperService.synthesize,
+                text,
+                speed,
+                voice,
+                quality,
+                noise_scale,
+                noise_w,
+            )
+    except Exception:
+        logger.exception(
+            "TTS synthesis exception rid=%s uid=%s provider=%s voice=%s",
+            rid,
+            uid,
+            provider,
+            voice,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "tts_exception", "request_id": rid},
+        )
+
+    if not audio_data:
+        logger.error(
+            "TTS synthesis returned no audio rid=%s uid=%s provider=%s voice=%s",
+            rid,
+            uid,
+            provider,
+            voice,
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "tts_failed", "request_id": rid},
+        )
+
+    return Response(
+        content=audio_data,
+        media_type="audio/wav",
+        headers={"X-Request-Id": rid},
+    )
+
+
+@app.get("/tts/voices")
+def tts_voices():
+    """
+    List available Piper voices.
+    """
+    return {"voices": VoiceManager.list_voices()}
+
+
+@app.post("/tts/prewarm")
+def tts_prewarm(payload: Dict[str, Any] = Body(...)):
+    voice = payload.get("voice")
+    quality = payload.get("quality", "low")
+    if not voice:
+        return JSONResponse(status_code=400, content={"error": "voice required"})
+    logger.info(f"Prewarm TTS model voice={voice} quality={quality}")
+    vinfo = VoiceManager.get_voice_info(str(voice)) or {}
+    if vinfo.get("provider") == "google":
+        return {"ok": True}
+    path = VoiceManager.get_model_path(str(voice), str(quality))
+    if not path:
+        return JSONResponse(status_code=500, content={"error": "prewarm failed"})
+    return {"ok": True}
+
+
+@app.post("/stt/transcribe")
+async def stt_transcribe(
+    request: Request,
+    file: UploadFile = File(...),
+    language: str = Form("en-US"),
+):
+    """
+    Transcribe uploaded audio file using Google Cloud Speech-to-Text.
+    """
+    rid = uuid4().hex
+    try:
+        uid = get_user_id_from_request(request) if request else _uid(None)
+        content_type = file.content_type
+        content = await file.read()
+        if not content:
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "error": "empty_audio", "request_id": rid},
+            )
+
+        if content_type and not content_type.startswith("audio/"):
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "ok": False,
+                    "error": "invalid_content_type",
+                    "request_id": rid,
+                },
+            )
+
+        if len(content) > 10 * 1024 * 1024:
+            return JSONResponse(
+                status_code=413,
+                content={"ok": False, "error": "audio_too_large", "request_id": rid},
+            )
+
+        logger.info(
+            "STT request rid=%s uid=%s content_type=%s bytes=%s language=%s",
+            rid,
+            uid,
+            content_type,
+            len(content),
+            language,
+        )
+
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            GoogleSttService.transcribe_with_diagnostics,
+            content,
+            language,
+            content_type,
+        )
+
+        transcript = result.get("transcript")
+        error = result.get("error")
+        details = result.get("details")
+
+        if transcript is None:
+            # Default error to no_speech if not set
+            if not error:
+                error = "no_speech"
+
+            logger.error(
+                "STT transcription failed rid=%s uid=%s content_type=%s error=%s details=%s meta=%s",
+                rid,
+                uid,
+                content_type,
+                error,
+                details,
+                {
+                    "encoding": result.get("encoding"),
+                    "sample_rate_hz": result.get("sample_rate_hz"),
+                    "channel_count": result.get("channel_count"),
+                    "results_count": result.get("results_count"),
+                    "used_fallback": result.get("used_fallback"),
+                },
+            )
+
+            if error in {"no_speech"}:
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "ok": False,
+                        "error": "no_speech",
+                        "request_id": rid,
+                    },
+                )
+
+            client_error_codes = {
+                "invalid_argument",
+                "bad_request",
+            }
+            if error in client_error_codes:
+                return JSONResponse(
+                    status_code=400,
+                    content={
+                        "ok": False,
+                        "error": error,
+                        "details": details,
+                        "request_id": rid,
+                    },
+                )
+
+            auth_error_codes = {
+                "permission_denied",
+                "unauthenticated",
+            }
+            if error in auth_error_codes:
+                return JSONResponse(
+                    status_code=502,
+                    content={
+                        "ok": False,
+                        "error": error,
+                        "details": "Upstream authentication/permission error when calling Google STT.",
+                        "request_id": rid,
+                    },
+                )
+
+            rate_limit_codes = {
+                "rate_limited",
+            }
+            if error in rate_limit_codes:
+                return JSONResponse(
+                    status_code=502,
+                    content={
+                        "ok": False,
+                        "error": error,
+                        "details": "Upstream rate limit exceeded when calling Google STT.",
+                        "request_id": rid,
+                    },
+                )
+
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "ok": False,
+                    "error": "transcription_failed",
+                    "details": details,
+                    "request_id": rid,
+                },
+            )
+
+        return {
+            "ok": True,
+            "transcript": transcript,
+            "request_id": rid,
+        }
+    except Exception as e:
+        logger.exception(
+            "STT transcription exception rid=%s content_type=%s error=%s",
+            rid,
+            getattr(file, "content_type", None),
+            str(e),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "transcription_error", "request_id": rid},
+        )
 
 
 @app.middleware("http")
@@ -267,13 +679,13 @@ async def health_check():
     return {
         "status": "ok",
         "ok": True,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now().isoformat(),
         "mcp_calendar": "available" if _CALENDAR_MCP_AVAILABLE else "unavailable",
         "search_tool": "available" if _SEARCH_TOOL else "unavailable"
     }
 
 
-def _uid(user_id: str | None) -> str:
+def _uid(user_id: Optional[str]) -> str:
     """
     Helper to resolve the effective user ID.
 
@@ -319,7 +731,6 @@ def _mcp_calendar_guard(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail={"ok": False, "error": "unauthorized"})
 
     # Rate limiting
-    import time
     count = int(os.getenv("MCP_RATE_LIMIT_COUNT", "100"))
     window = int(os.getenv("MCP_RATE_LIMIT_WINDOW_SECONDS", "900"))
     ip = (request.client.host if request.client else "0.0.0.0")
@@ -351,7 +762,24 @@ def sessions_yesterday(request: Request, user_id: str | None = None):
     Returns:
         dict: A dictionary containing a list of sessions.
     """
-    start, end = yesterday_range()
+    from datetime import datetime, timezone, timedelta, tzinfo
+    from zoneinfo import ZoneInfo
+    offset_str = request.headers.get("X-Client-Offset-Minutes") if request else None
+    offset = int(offset_str) if (offset_str and offset_str.strip().lstrip("-+").isdigit()) else 0
+    tz_name = request.headers.get("X-Client-Timezone") if request else None
+    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    local_tz: tzinfo
+    if tz_name:
+        try:
+            local_tz = ZoneInfo(tz_name)
+        except Exception:
+            local_tz = timezone(timedelta(minutes=offset))
+    else:
+        local_tz = timezone(timedelta(minutes=offset))
+    now_local = now_utc.astimezone(local_tz)
+    y = (now_local.date() - timedelta(days=1))
+    start = datetime(y.year, y.month, y.day, 0, 0, 0, tzinfo=local_tz).isoformat()
+    end = datetime(y.year, y.month, y.day, 23, 59, 59, tzinfo=local_tz).isoformat()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     sessions = get_sessions_by_date(uid, "altered", start, end)
     return {"sessions": sessions}
@@ -370,7 +798,24 @@ def session_events(request: Request, session_id: str, user_id: str | None = None
     Returns:
         dict: A dictionary containing a list of events.
     """
-    start, end = yesterday_range()
+    from datetime import datetime, timezone, timedelta, tzinfo
+    from zoneinfo import ZoneInfo
+    offset_str = request.headers.get("X-Client-Offset-Minutes") if request else None
+    offset = int(offset_str) if (offset_str and offset_str.strip().lstrip("-+").isdigit()) else 0
+    tz_name = request.headers.get("X-Client-Timezone") if request else None
+    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    local_tz: tzinfo
+    if tz_name:
+        try:
+            local_tz = ZoneInfo(tz_name)
+        except Exception:
+            local_tz = timezone(timedelta(minutes=offset))
+    else:
+        local_tz = timezone(timedelta(minutes=offset))
+    now_local = now_utc.astimezone(local_tz)
+    y = (now_local.date() - timedelta(days=1))
+    start = datetime(y.year, y.month, y.day, 0, 0, 0, tzinfo=local_tz).isoformat()
+    end = datetime(y.year, y.month, y.day, 23, 59, 59, tzinfo=local_tz).isoformat()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     events = get_events_for_session(uid, "altered", session_id, start, end)
     return {"events": events}
@@ -385,13 +830,15 @@ def api_atomize(payload: Dict[str, Any] = Body(...)):
     users who are overwhelmed by large tasks.
 
     Args:
-        payload (Dict[str, Any]): JSON payload containing "description" of the task.
+        payload (Dict[str, Any]): JSON payload containing "description" of the task
+                                  and optional "country_code".
 
     Returns:
         dict: The atomized task structure.
     """
     desc = payload.get("description", "")
-    return atomize_task(desc)
+    country_code = payload.get("country_code")
+    return atomize_task(desc, country_code=country_code)
 
 
 @app.post("/tasks/schedule")
@@ -418,7 +865,7 @@ def api_schedule(payload: Dict[str, Any] = Body(...)):
 
 
 @app.post("/time/countdown")
-def api_countdown(payload: Dict[str, Any] = Body(...)):
+def api_countdown(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None):
     """
     Create a countdown timer based on a natural language query.
 
@@ -429,16 +876,89 @@ def api_countdown(payload: Dict[str, Any] = Body(...)):
         dict: The timer configuration and ID.
     """
     query = payload.get("query")
-    conf = create_countdown(query)
+    target_iso = payload.get("target_iso")
+    if query is None and target_iso is None:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "query_required"})
+
+    conf = create_countdown(query if query is not None else target_iso)
     if conf.get("ok") is False:
-        return JSONResponse(status_code=400, content={"ok": False, "error": conf.get("error", "invalid_duration")})
-    tid = store_countdown(conf["target"], conf["warnings"])
+        content = {"ok": False, "error": conf.get("error", "invalid_duration")}
+        if conf.get("message"):
+            content["message"] = conf.get("message")
+        return JSONResponse(status_code=400, content=content)
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        tid = store_countdown(conf["target"], conf["warnings"], uid)
+    except Exception as e:
+        logger.exception(f"Timer store failed uid={uid}: {e}")
+        return JSONResponse(status_code=503, content={"ok": False, "error": "timer_store_unavailable"})
     res = {"timer_id": tid, **conf}
     return res
 
 
+@app.post("/time/estimate")
+def api_time_estimate(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None):
+    """
+    Calibrate user's time estimate based on historical patterns.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing "task_description" and "user_estimate_minutes".
+
+    Returns:
+        dict: Calibrated time estimate with explanation.
+    """
+    task_description = payload.get("task_description", "")
+    user_estimate = payload.get("user_estimate_minutes")
+    
+    if not task_description or user_estimate is None:
+        return JSONResponse(status_code=400, content={
+            "ok": False, 
+            "error": "task_description and user_estimate_minutes required"
+        })
+    
+    try:
+        user_estimate = int(user_estimate)
+        if user_estimate <= 0:
+            raise ValueError("Estimate must be positive")
+    except (ValueError, TypeError):
+        return JSONResponse(status_code=400, content={
+            "ok": False, 
+            "error": "user_estimate_minutes must be a positive integer"
+        })
+    
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    result = reality_calibrator(task_description, user_estimate, uid)
+    
+    return {"ok": True, **result}
+
+
+@app.post("/time/conflicts")
+def api_check_conflicts(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None):
+    """
+    Check for upcoming calendar conflicts and transition warnings.
+
+    Args:
+        payload (Dict[str, Any]): JSON payload containing optional "hours_ahead".
+
+    Returns:
+        dict: Upcoming conflicts and recommendations.
+    """
+    hours_ahead = payload.get("hours_ahead", 2)
+    
+    try:
+        hours_ahead = int(hours_ahead)
+        if hours_ahead <= 0 or hours_ahead > 24:
+            hours_ahead = 2
+    except (ValueError, TypeError):
+        hours_ahead = 2
+    
+    result = check_upcoming_conflicts(hours_ahead)
+    
+    return {"ok": True, **result}
+
+
 @app.post("/energy/detect")
-def api_detect(payload: Dict[str, Any] = Body(...)):
+def api_detect(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None):
     """
     Detect sensory overload from text input.
 
@@ -451,7 +971,42 @@ def api_detect(payload: Dict[str, Any] = Body(...)):
         dict: Assessment of sensory load.
     """
     text = payload.get("text", "")
-    return detect_sensory_overload(text)
+    res = detect_sensory_overload(text)
+    try:
+        uid = get_user_id_from_request(request) if request else _uid(user_id)
+        if res.get("overload"):
+            t = text.lower()
+            triggers = []
+            for k in ["loud", "bright", "crowded", "overstimulated", "noisy", "glare", "busy"]:
+                if k in t:
+                    triggers.append(k)
+            if triggers:
+                bank = FirestoreMemoryBank(uid)
+                for tr in triggers:
+                    bank.add_sensory_trigger(tr)
+    except Exception:
+        pass
+    return res
+
+@app.post("/energy/log")
+def api_energy_log(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None):
+    """
+    Log a specific energy level manually or from agent inference.
+    
+    Args:
+        payload: containing 'level' (int) and optional 'context' (str).
+    """
+    level = int(payload.get("level", 0))
+    context = payload.get("context")
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        bank = FirestoreMemoryBank(uid)
+        bank.record_energy_level(level)
+        if context:
+            bank.store_decision_event("energy_log", {"level": level, "context": context})
+        return {"ok": True, "logged": True, "level": level}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @app.post("/decision/reduce")
@@ -470,6 +1025,66 @@ def api_reduce(payload: Dict[str, Any] = Body(...)):
     opts: List[str] = payload.get("options", [])
     limit = int(payload.get("limit", 3))
     return reduce_options(opts, max_options=limit)
+
+
+_GEO_CACHE: Dict[str, Dict[str, Any]] = {}
+_GEO_CACHE_TTL = 3600  # 1 hour
+
+@app.get("/geo/ip")
+async def geo_ip(request: Request):
+    """
+    Determine country from IP address.
+    Uses ip-api.com as a fallback mechanism for country detection.
+    Results are cached for 1 hour to minimize API calls.
+    
+    Returns:
+        dict: {"country_code": "US", "country": "United States", ...}
+    """
+    # Try to get the real client IP if behind proxy
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else None
+
+    # Determine if we are looking up the server's own IP (local dev) or a specific client IP
+    is_local = not client_ip or client_ip in ("127.0.0.1", "::1", "localhost")
+    cache_key = "server_public_ip" if is_local else client_ip
+
+    # Check cache
+    now = time.time()
+    if cache_key in _GEO_CACHE:
+        entry = _GEO_CACHE[cache_key]
+        if now - entry["ts"] < _GEO_CACHE_TTL:
+            print(f"DEBUG: Returning cached geo for {cache_key}")
+            return entry["data"]
+
+    url = "http://ip-api.com/json/"
+    if not is_local:
+        url = f"http://ip-api.com/json/{client_ip}"
+
+    print(f"DEBUG: resolving geo for IP: {client_ip} via {url}")
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("status") == "success":
+                    result = {
+                        "country_code": data.get("countryCode"),
+                        "country": data.get("country"),
+                        "city": data.get("city"),
+                        "ip": data.get("query"),
+                        "source": "ip-api"
+                    }
+                    # Update cache
+                    _GEO_CACHE[cache_key] = {"ts": now, "data": result}
+                    return result
+    except Exception as e:
+        print(f"IP Geo lookup failed: {e}")
+
+    return {"country_code": None, "error": "lookup_failed"}
 
 
 @app.post("/decision/protocol")
@@ -602,6 +1217,133 @@ def api_a2a_update(payload: Dict[str, Any] = Body(...)):
     return post_update(pid, upd)
 
 
+@app.get("/a2a/updates")
+def api_a2a_updates(request: Request, partner_id: str, limit: int = 20):
+    """
+    List recent updates from a connected A2A partner.
+    """
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    return list_updates(partner_id, limit)
+
+
+@app.delete("/a2a/connection")
+def api_a2a_disconnect(partner_id: str):
+    """
+    Disconnect from an A2A partner.
+    """
+    return disconnect_partner(partner_id)
+
+
+@app.get("/a2a/partners")
+def api_a2a_partners(request: Request):
+    """
+    List all connected A2A partners.
+    """
+    return list_partners()
+
+
+@app.get("/a2a/partner-id")
+def api_partner_id(request: Request):
+    return get_or_create_partner_id()
+
+
+@app.post("/a2a/selected-partner")
+def api_set_selected_partner(payload: Dict[str, Any] = Body(...)):
+    pid = payload.get("partner_id") or ""
+    return set_selected_partner(pid)
+
+
+@app.get("/a2a/selected-partner")
+def api_get_selected_partner():
+    return get_selected_partner()
+
+
+@app.post("/a2a/default-partner")
+def api_set_default_partner(payload: Dict[str, Any] = Body(...)):
+    pid = payload.get("partner_id") or ""
+    return set_default_partner(pid)
+
+
+@app.get("/a2a/default-partner")
+def api_get_default_partner():
+    return get_default_partner()
+
+
+@app.post("/metrics/log")
+def api_metrics_log(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None):
+    """
+    Log a generic metric event.
+
+    The payload must contain a 'kind' field specifying the type of metric
+    (e.g., 'task_completion', 'stress_level', 'strategy_effectiveness').
+    Other fields in the payload will be passed to the corresponding record function.
+
+    Args:
+        request (Request): HTTP request.
+        payload (Dict[str, Any]): JSON payload containing the metric data.
+        user_id (str | None): Optional user ID override.
+
+    Returns:
+        dict: Confirmation of logging.
+    """
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    kind = payload.get("kind")
+
+    if not kind:
+        raise HTTPException(status_code=400, detail={"ok": False, "error": "Metric 'kind' is required"})
+
+    # Dispatch to appropriate record function based on 'kind'
+    try:
+        if kind == "task_completion":
+            record_task_completion(
+                task_id=payload.get("task_id"),
+                estimated_minutes=payload.get("estimated_minutes"),
+                actual_minutes=payload.get("actual_minutes")
+            )
+        elif kind == "decision_resolution":
+            record_decision_resolution(duration_seconds=payload.get("duration_seconds"))
+        elif kind == "hyperfocus_interrupt":
+            record_hyperfocus_interrupt()
+        elif kind == "agent_latency":
+            record_agent_latency(latency_ms=payload.get("latency_ms"))
+        elif kind == "decision_resolution_time":
+            record_decision_resolution(duration_seconds=payload.get("duration_seconds"))
+        elif kind == "stress_level":
+            record_stress_level(level=payload.get("level"))
+        elif kind == "strategy_effectiveness":
+            record_strategy_effectiveness(strategy_name=payload.get("strategy_name"), effectiveness=payload.get("effectiveness"))
+        elif kind == "model_usage":
+            record_model_usage(
+                model_name=payload.get("model_name"),
+                latency_ms=payload.get("latency_ms"),
+                tokens_input=payload.get("tokens_input", 0),
+                tokens_output=payload.get("tokens_output", 0),
+                status=payload.get("status", "success"),
+                error=payload.get("error")
+            )
+        elif kind == "api_access":
+            record_api_access(
+                endpoint=payload.get("endpoint"),
+                status=payload.get("status"),
+                latency_ms=payload.get("latency_ms"),
+                error=payload.get("error")
+            )
+        else:
+            raise HTTPException(status_code=400, detail={"ok": False, "error": f"Unknown metric kind: {kind}"})
+        return {"ok": True, "logged": True, "kind": kind}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail={"ok": False, "error": str(e)})
+
+@app.get("/metrics/daily/{date_key}")
+def api_metrics_daily(request: Request, date_key: str, user_id: str | None = None):
+    """
+    Retrieve daily metrics for a specific date.
+    """
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    overview = compute_daily_overview(uid, date_key)
+    return overview
+
+
 @app.get("/metrics/overview")
 def api_metrics_overview(request: Request, user_id: str | None = None):
     """
@@ -615,8 +1357,50 @@ def api_metrics_overview(request: Request, user_id: str | None = None):
         dict: Daily overview metrics.
     """
     uid = get_user_id_from_request(request) if request else _uid(user_id)
-    dk = datetime.now(timezone.utc).date().isoformat()
+    from datetime import datetime, timezone, timedelta, tzinfo
+    from zoneinfo import ZoneInfo
+    offset_str = request.headers.get("X-Client-Offset-Minutes") if request else None
+    offset = int(offset_str) if (offset_str and offset_str.strip().lstrip("-+").isdigit()) else 0
+    tz_name = request.headers.get("X-Client-Timezone") if request else None
+    now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+    local_tz: tzinfo
+    if tz_name:
+        try:
+            local_tz = ZoneInfo(tz_name)
+        except Exception:
+            local_tz = timezone(timedelta(minutes=offset))
+    else:
+        local_tz = timezone(timedelta(minutes=offset))
+    dk = now_utc.astimezone(local_tz).date().isoformat()
     return compute_daily_overview(uid, dk)
+
+
+@app.post("/metrics/stress")
+def api_metrics_stress(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None):
+    """Log stress level manually."""
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    level = int(payload.get("level", 5))
+    context = payload.get("context")
+    try:
+        from services.metrics_service import record_stress_level
+        record_stress_level(level, context)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/metrics/strategy")
+def api_metrics_strategy(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None):
+    """Log strategy effectiveness."""
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    strategy = payload.get("strategy")
+    successful = bool(payload.get("successful"))
+    try:
+        from services.metrics_service import record_strategy_effectiveness
+        record_strategy_effectiveness(strategy, successful)
+        return {"ok": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @app.get("/memory/patterns")
@@ -633,6 +1417,16 @@ def api_memory_patterns(request: Request, user_id: str | None = None):
     """
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     return {"patterns": get_patterns(uid)}
+
+@app.post("/memory/patterns/recompute")
+def api_memory_patterns_recompute(request: Request, user_id: str | None = None):
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        from services.patterns_service import recompute_patterns
+        res = recompute_patterns(uid)
+        return {"ok": True, **res}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 @app.post("/memory/compact")
@@ -671,19 +1465,74 @@ def api_calendar_ready(request: Request):
     return check_mcp_ready(user_id=uid)
 
 
+@app.post("/calendar/events/delete")
+async def api_calendar_delete_event(request: Request):
+    """
+    Delete a calendar event.
+    """
+    user_id = get_user_id_from_request(request)
+    try:
+        data = await request.json()
+        calendar_id = data.get("calendarId", "primary")
+        event_id = data.get("eventId")
+        if not event_id:
+            return {"ok": False, "error": "eventId required"}
+
+        from services.calendar_mcp import _delete_event_async
+        res = await _delete_event_async(calendar_id, event_id, user_id=user_id)
+        return res
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.post("/calendar/events/update")
+async def api_calendar_update_event(request: Request):
+    """
+    Update a calendar event.
+    """
+    user_id = get_user_id_from_request(request)
+    try:
+        data = await request.json()
+        calendar_id = data.get("calendarId", "primary")
+        event_id = data.get("eventId")
+        updates = data.get("updates", {})
+
+        if not event_id:
+             return {"ok": False, "error": "eventId required"}
+
+        from services.calendar_mcp import _update_event_payload_async
+        res = await _update_event_payload_async(calendar_id, event_id, updates, user_id=user_id)
+        return res
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/calendar/events/today")
 def api_calendar_events_today(request: Request):
     """
-    List calendar events for today.
+    List calendar events for today from ALL visible calendars.
 
     Args:
         request (Request): HTTP request.
 
     Returns:
-        dict: List of events for today.
+        dict: List of events for today from all calendars.
     """
     uid = get_user_id_from_request(request) if request else _uid(None)
-    return list_events_today("primary", user_id=uid)
+    tz_name = request.headers.get("X-Client-Timezone") if request else None
+
+    try:
+        # Use list_events_today with include_all_calendars=True to get events from all subscribed calendars
+        res = list_events_today(calendar_id="primary", user_id=uid, time_zone=tz_name, include_all_calendars=True)
+    except Exception as e:
+        logger.error(f"Error listing calendar events for {uid}: {e}")
+        res = {"ok": False, "error": str(e)}
+
+    if not res.get("ok"):
+        msg = str(res.get("error", "")).lower()
+        if ("invalid grant" in msg) or ("authenticate" in msg) or ("taskgroup" in msg) or ("credentials" in msg):
+            return {"ok": False, "error": "Google Calendar is not connected. Please go to Settings → Google Calendar → Connect to use calendar features."}
+    return res
 
 
 # ===== MCP Calendar v1 Endpoints =====
@@ -703,7 +1552,6 @@ def mcp_calendar_status(request: Request, user_id: str | None = None, _: None = 
     - curl example:
       curl -H "X-Calendar-MCP-Token: $CALENDAR_MCP_TOKEN" http://localhost:8000/mcp/calendar/v1/status
     """
-    import time
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     try:
@@ -775,7 +1623,6 @@ def mcp_calendar_diagnostics(request: Request, account: str = "normal", user_id:
 
 @app.get("/mcp/calendar/v1/credentials")
 def mcp_calendar_credentials(request: Request, account: str = "normal", user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
-    import time
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     try:
@@ -810,7 +1657,6 @@ def mcp_calendar_clear(request: Request, payload: Dict[str, Any] = Body(...), us
            -H "X-Calendar-MCP-Token: $CALENDAR_MCP_TOKEN" \
            -d '{"account":"test"}' http://localhost:8000/mcp/calendar/v1/clear
     """
-    import time
     t0 = time.time()
     acct = (payload or {}).get("account", "normal")
     uid = get_user_id_from_request(request) if request else _uid(user_id)
@@ -836,7 +1682,6 @@ def mcp_calendar_migrate(request: Request, user_id: str | None = None, _: None =
     Example:
       curl -X POST -H "X-Calendar-MCP-Token: $CALENDAR_MCP_TOKEN" http://localhost:8000/mcp/calendar/v1/migrate
     """
-    import time
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     try:
@@ -862,7 +1707,6 @@ def mcp_calendar_list(request: Request, payload: Dict[str, Any] = Body(...), use
            -d '{"calendarIds":["work","personal"],"timeMin":"2025-12-01T00:00:00+05:30","timeMax":"2025-12-08T00:00:00+05:30"}' \
            http://localhost:8000/mcp/calendar/v1/list
     """
-    import time
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     cids = (payload or {}).get("calendarIds", ["primary"])
@@ -870,7 +1714,8 @@ def mcp_calendar_list(request: Request, payload: Dict[str, Any] = Body(...), use
     tmax = (payload or {}).get("timeMax")
     acct = (payload or {}).get("account", "normal")
     try:
-        res = list_events_from_calendars(cids, tmin, tmax, uid, acct)
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
+        res = list_events_from_calendars(cids, tmin, tmax, uid, acct, tz_name)
         ms = int((time.time() - t0) * 1000)
         record_api_access("/mcp/calendar/v1/list", "success", ms)
         return res
@@ -888,14 +1733,14 @@ def mcp_calendar_create_batch(request: Request, payload: Dict[str, Any] = Body(.
     Auth: `X-Calendar-MCP-Token`
     Body: { "events": [ {"summary":"...","start":"...","end":"..."}, ... ], "calendarId": "primary", "account":"normal|test" }
     """
-    import time
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     events = (payload or {}).get("events", [])
     cal = (payload or {}).get("calendarId", "primary")
     acct = (payload or {}).get("account", "normal")
     try:
-        res = batch_create_events(events, cal, uid, acct)
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
+        res = batch_create_events(events, cal, uid, acct, tz_name)
         ms = int((time.time() - t0) * 1000)
         record_api_access("/mcp/calendar/v1/create/batch", "success", ms)
         return res
@@ -913,10 +1758,10 @@ def mcp_calendar_create_recurring(request: Request, payload: Dict[str, Any] = Bo
     Auth: `X-Calendar-MCP-Token`
     Body: { "summary":"...","start":"...","end":"...","recurrenceRule":"RRULE:FREQ=WEEKLY;BYDAY=MO" , "calendarId":"primary", "account":"normal|test" }
     """
-    import time
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     try:
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
         res = create_recurring_event(
             (payload or {}).get("summary"),
             (payload or {}).get("start"),
@@ -927,6 +1772,7 @@ def mcp_calendar_create_recurring(request: Request, payload: Dict[str, Any] = Bo
             (payload or {}).get("description"),
             uid,
             (payload or {}).get("account", "normal"),
+            time_zone=tz_name,
         )
         ms = int((time.time() - t0) * 1000)
         record_api_access("/mcp/calendar/v1/create/recurring", "success", ms)
@@ -945,17 +1791,23 @@ def mcp_calendar_update_recurring(request: Request, payload: Dict[str, Any] = Bo
     Auth: `X-Calendar-MCP-Token`
     Body: { "calendarId":"primary","eventId":"...","scope":"THIS|THIS_AND_FUTURE|ALL","updates":{...}, "account":"normal|test" }
     """
-    import time
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     try:
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
+        upd = (payload or {}).get("updates", {})
+        if (payload or {}).get("originalStartTime") and not upd.get("originalStartTime"):
+            upd["originalStartTime"] = (payload or {}).get("originalStartTime")
+        if (payload or {}).get("futureStartDate") and not upd.get("futureStartDate"):
+            upd["futureStartDate"] = (payload or {}).get("futureStartDate")
         res = update_recurring_event(
             (payload or {}).get("calendarId", "primary"),
             (payload or {}).get("eventId"),
             (payload or {}).get("scope", "THIS"),
-            (payload or {}).get("updates", {}),
+            upd,
             uid,
             (payload or {}).get("account", "normal"),
+            time_zone=tz_name,
         )
         ms = int((time.time() - t0) * 1000)
         record_api_access("/mcp/calendar/v1/update/recurring", "success", ms)
@@ -963,6 +1815,130 @@ def mcp_calendar_update_recurring(request: Request, payload: Dict[str, Any] = Bo
     except Exception as e:
         ms = int((time.time() - t0) * 1000)
         record_api_access("/mcp/calendar/v1/update/recurring", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/update")
+def mcp_calendar_update(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
+        res = update_event_payload(
+            (payload or {}).get("calendarId", "primary"),
+            (payload or {}).get("eventId"),
+            (payload or {}).get("updates", {}),
+            uid,
+            (payload or {}).get("account", "normal"),
+            time_zone=tz_name,
+        )
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/update", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/update", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/delete")
+def mcp_calendar_delete(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = delete_event(
+            (payload or {}).get("calendarId", "primary"),
+            (payload or {}).get("eventId"),
+            uid,
+        )
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/delete", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/delete", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/get")
+def mcp_calendar_get(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = get_event(
+            (payload or {}).get("calendarId", "primary"),
+            (payload or {}).get("eventId"),
+            (payload or {}).get("fields"),
+            uid,
+            (payload or {}).get("account", "normal"),
+        )
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/get", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/get", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.get("/mcp/calendar/v1/colors")
+def mcp_calendar_colors(request: Request, account: str = "normal", user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        res = list_colors(uid, account)
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/colors", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/colors", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.post("/mcp/calendar/v1/freebusy")
+def mcp_calendar_freebusy(request: Request, payload: Dict[str, Any] = Body(...), user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
+        calendars_obj = (payload or {}).get("calendars")
+        if calendars_obj and isinstance(calendars_obj, list):
+            cids = [c.get("id") for c in calendars_obj if isinstance(c, dict) and c.get("id")]
+        else:
+            cids = (payload or {}).get("calendarIds", ["primary"]) or ["primary"]
+        res = get_freebusy(
+            cids,
+            (payload or {}).get("timeMin"),
+            (payload or {}).get("timeMax"),
+            uid,
+            (payload or {}).get("account", "normal"),
+            time_zone=tz_name,
+            group_expansion_max=(payload or {}).get("groupExpansionMax"),
+            calendar_expansion_max=(payload or {}).get("calendarExpansionMax"),
+        )
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/freebusy", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/freebusy", "error", ms, str(e))
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.get("/mcp/calendar/v1/time")
+def mcp_calendar_current_time(request: Request, account: str = "normal", user_id: str | None = None, _: None = Depends(_mcp_calendar_guard)):
+    t0 = time.time()
+    uid = get_user_id_from_request(request) if request else _uid(user_id)
+    try:
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
+        res = get_current_time(uid, account, time_zone=tz_name)
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/time", "success", ms)
+        return res
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        record_api_access("/mcp/calendar/v1/time", "error", ms, str(e))
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
 
@@ -974,10 +1950,10 @@ def mcp_calendar_availability(request: Request, payload: Dict[str, Any] = Body(.
     Auth: `X-Calendar-MCP-Token`
     Body: { "calendarIds": [...], "durationMinutes": 90, "timeMin":"...", "timeMax":"...", "preference":"afternoon" }
     """
-    import time
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     try:
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
         res = find_availability(
             (payload or {}).get("calendarIds", ["primary"]),
             int((payload or {}).get("durationMinutes", 60)),
@@ -986,6 +1962,7 @@ def mcp_calendar_availability(request: Request, payload: Dict[str, Any] = Body(.
             (payload or {}).get("preference"),
             uid,
             (payload or {}).get("account", "normal"),
+            time_zone=tz_name,
         )
         ms = int((time.time() - t0) * 1000)
         record_api_access("/mcp/calendar/v1/availability", "success", ms)
@@ -1004,10 +1981,10 @@ def mcp_calendar_search(request: Request, payload: Dict[str, Any] = Body(...), u
     Auth: `X-Calendar-MCP-Token`
     Body: { "calendarIds": [...], "timeMin":"...","timeMax":"...", "attendee":"john@example.com", "location":"hq", "status":"confirmed", "minDurationMinutes":60 }
     """
-    import time
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     try:
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
         res = search_events(
             (payload or {}).get("calendarIds", ["primary"]),
             (payload or {}).get("timeMin"),
@@ -1018,6 +1995,7 @@ def mcp_calendar_search(request: Request, payload: Dict[str, Any] = Body(...), u
             (payload or {}).get("minDurationMinutes"),
             uid,
             (payload or {}).get("account", "normal"),
+            time_zone=tz_name,
         )
         ms = int((time.time() - t0) * 1000)
         record_api_access("/mcp/calendar/v1/search", "success", ms)
@@ -1036,16 +2014,17 @@ def mcp_calendar_analyze(request: Request, payload: Dict[str, Any] = Body(...), 
     Auth: `X-Calendar-MCP-Token`
     Body: { "calendarIds": [...], "timeMin":"...", "timeMax":"..." }
     """
-    import time
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     try:
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
         res = analyze_calendar(
             (payload or {}).get("calendarIds", ["primary"]),
             (payload or {}).get("timeMin"),
             (payload or {}).get("timeMax"),
             uid,
             (payload or {}).get("account", "normal"),
+            time_zone=tz_name,
         )
         ms = int((time.time() - t0) * 1000)
         record_api_access("/mcp/calendar/v1/analyze", "success", ms)
@@ -1064,11 +2043,11 @@ def mcp_calendar_extract(request: Request, payload: Dict[str, Any] = Body(...), 
     Auth: `X-Calendar-MCP-Token`
     Body: { "imageBase64":"...", "mimeType":"image/png" } OR { "imagePath":"/path/to.png" }
     """
-    import base64, time
+    import base64
     t0 = time.time()
     uid = get_user_id_from_request(request) if request else _uid(user_id)
     img_b64 = (payload or {}).get("imageBase64")
-    mime = (payload or {}).get("mimeType", "image/png")
+    # mime optional; not used here
     img_path = (payload or {}).get("imagePath")
     try:
         if img_b64:
@@ -1087,6 +2066,21 @@ def mcp_calendar_extract(request: Request, payload: Dict[str, Any] = Body(...), 
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
 
+@app.get("/mcp/country/info")
+def api_country_info(code: str):
+    """
+    Get information for a specific country.
+    
+    Args:
+        code (str): ISO 3166-1 alpha-2 country code.
+        
+    Returns:
+        JSON response with country data.
+    """
+    data = get_country_info(code)
+    return {"ok": True, "data": data}
+
+
 # ===== OAuth Endpoints =====
 
 @app.get("/auth/google/calendar")
@@ -1097,21 +2091,21 @@ def api_oauth_calendar_init(request: Request, platform: str = 'web'):
     if not auth_header or not auth_header.lower().startswith("bearer "):
         return JSONResponse(status_code=401, content={"ok": False, "error": "Missing Authorization"})
     uid = get_user_id_from_request(request) if request else _uid(None)
-    
+
     try:
         oauth_handler = GoogleOAuthHandler()
-        
+
         # Use platform-specific redirect URI
         redirect_uri = None
         if platform == 'mobile':
             redirect_uri = 'altered://oauth-callback'
-        
+
         # Use user_id as state for CSRF protection
         authorization_url = oauth_handler.get_authorization_url(
             state=uid,
             redirect_uri=redirect_uri
         )
-        
+
         return {"ok": True, "authorization_url": authorization_url}
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
@@ -1123,9 +2117,9 @@ def api_oauth_calendar_callback(request: Request, code: str, state: str):
     try:
         # Verify state matches user_id (basic CSRF protection)
         uid = state
-        
+
         oauth_handler = GoogleOAuthHandler()
-        
+
         # If state is 'mcp_redirect', this came from MCP server via our redirect server
         # Use the MCP redirect URI (localhost:3500) for token exchange
         if state == "mcp_redirect":
@@ -1135,16 +2129,16 @@ def api_oauth_calendar_callback(request: Request, code: str, state: str):
             import logging
             logging.warning("MCP redirect callback received but no user_id in state. Tokens cannot be saved.")
             return JSONResponse(status_code=400, content={
-                "ok": False, 
+                "ok": False,
                 "error": "MCP redirect requires user_id in state. Please reconnect via Settings."
             })
         else:
             # Normal flow from Settings UI
             token_result = oauth_handler.exchange_code_for_tokens(code)
-        
+
         if not token_result.get("ok"):
             return JSONResponse(status_code=400, content=token_result)
-        
+
         # Store tokens in Firestore (encrypted)
         user_settings = UserSettings(uid)
         store_result = user_settings.save_oauth_tokens(
@@ -1154,10 +2148,10 @@ def api_oauth_calendar_callback(request: Request, code: str, state: str):
             expires_at=token_result["expires_at"],
             scopes=token_result["scopes"]
         )
-        
+
         if not store_result.get("ok"):
             return JSONResponse(status_code=500, content=store_result)
-        
+
         # Fetch and store user email
         try:
             import requests as _requests
@@ -1173,31 +2167,52 @@ def api_oauth_calendar_callback(request: Request, code: str, state: str):
                     user_settings.save_profile_email(email)
         except Exception:
             pass
-
-        return RedirectResponse(url="/#/settings?connected=true")
+        auth_header = request.headers.get("Authorization") if request else None
+        if auth_header and auth_header.lower().startswith("bearer "):
+            return {"ok": True, "connected": True}
+        import os as _os
+        fe = _os.getenv("FRONTEND_BASE_URL")
+        url = (fe.rstrip("/") + "/#/settings?connected=true") if fe else "/#/settings?connected=true"
+        return RedirectResponse(url=url, status_code=302)
     except Exception as e:
-        return RedirectResponse(url=f"/#/settings?error={str(e)}")
+        auth_header = request.headers.get("Authorization") if request else None
+        if auth_header and auth_header.lower().startswith("bearer "):
+            return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
+        import os as _os
+        fe = _os.getenv("FRONTEND_BASE_URL")
+        url = (fe.rstrip("/") + f"/#/settings?error={str(e)}") if fe else f"/#/settings?error={str(e)}"
+        return RedirectResponse(url=url, status_code=302)
+
+
+@app.get("/")
+def root_page():
+    return HTMLResponse(content="""<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Altered</title><style>body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Ubuntu,Helvetica,Arial,sans-serif;margin:0;padding:24px;background:#111;color:#eee} .card{max-width:720px;margin:0 auto;background:#1b1b1b;border:1px solid #2a2a2a;border-radius:12px;padding:24px;box-shadow:0 8px 24px rgba(0,0,0,0.4)} .title{font-size:22px;margin:0 0 8px} .ok{color:#4caf50} .err{color:#f44336} .muted{color:#aaa;font-size:14px} .btn{display:inline-block;margin-top:12px;padding:8px 12px;border-radius:8px;background:#2b2b2b;color:#eee;text-decoration:none;border:1px solid #3a3a3a}</style></head><body><div class=\"card\"><h1 class=\"title\">Altered API</h1><p id=\"message\" class=\"muted\">Server running.</p><a class=\"btn\" href=\"/#/settings\">Back to Settings</a></div><script>const h=(window.location.hash||'');const m=document.getElementById('message');if(h.includes('settings')&&h.includes('connected=true')){m.textContent='Google Calendar connected. You can close this tab.';m.className='ok';}else if(h.includes('error=')){const e=decodeURIComponent(h.split('error=')[1]||'');m.textContent='Google Calendar connection failed: '+e;m.className='err';}</script></body></html>""")
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return Response(status_code=204, media_type="image/x-icon")
 
 
 @app.delete("/auth/google/calendar")
 def api_oauth_calendar_revoke(request: Request):
     """Revoke calendar access and delete tokens."""
     uid = get_user_id_from_request(request) if request else _uid(None)
-    
+
     try:
         user_settings = UserSettings(uid)
-        
+
         # Get tokens to revoke
         tokens = user_settings.get_oauth_tokens("google_calendar")
-        
+
         if tokens:
             # Revoke access token
             oauth_handler = GoogleOAuthHandler()
             oauth_handler.revoke_token(tokens["access_token"])
-        
+
         # Delete tokens from Firestore
         delete_result = user_settings.delete_oauth_tokens("google_calendar")
-        
+
         return delete_result
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
@@ -1209,16 +2224,57 @@ def api_oauth_calendar_status(request: Request):
 
     try:
         user_settings = UserSettings(uid)
-        tokens = user_settings.get_oauth_tokens("google_calendar")
         connected_flag = user_settings.is_oauth_connected("google_calendar")
+        has_tokens = user_settings.has_oauth_tokens("google_calendar")
+        meta = user_settings.get_oauth_token_metadata("google_calendar")
 
-        has_tokens = bool(tokens)
-        expires_at = tokens["expires_at"] if tokens else None
-        scopes = tokens["scopes"] if tokens else []
+        # Proactive Token Refresh Logic
+        # -----------------------------
+        # Check if token is expired or expiring soon (within 5 minutes)
+        # If so, refresh it immediately so the agent has a valid token for the first query.
+        try:
+            tokens = user_settings.get_oauth_tokens("google_calendar")
+            if tokens and tokens.get("expires_at") and tokens.get("refresh_token"):
+                from datetime import datetime, timedelta
+                from services.oauth_handlers import GoogleOAuthHandler
+
+                expires_at_str = tokens.get("expires_at")
+                try:
+                    expires_dt = datetime.fromisoformat(expires_at_str)
+                    if expires_dt.tzinfo is not None:
+                        expires_dt = expires_dt.astimezone().replace(tzinfo=None)
+
+                    # If expiring within 5 minutes (or already expired)
+                    if datetime.now() >= (expires_dt - timedelta(minutes=5)):
+                        print(f"[{uid}] Proactively refreshing calendar token in status check")
+                        oauth = GoogleOAuthHandler()
+                        refresh_res = oauth.refresh_access_token(tokens["refresh_token"])
+
+                        if refresh_res.get("ok"):
+                            # Save new tokens
+                            user_settings.save_oauth_tokens(
+                                provider="google_calendar",
+                                access_token=refresh_res["access_token"],
+                                refresh_token=tokens["refresh_token"],
+                                expires_at=refresh_res["expires_at"],
+                                scopes=tokens.get("scopes", [])
+                            )
+                            # Update local meta for response
+                            meta = user_settings.get_oauth_token_metadata("google_calendar")
+                            has_tokens = True
+                        else:
+                            print(f"[{uid}] Proactive refresh failed: {refresh_res.get('error')}")
+                except Exception as e:
+                    print(f"[{uid}] Error checking token expiry: {e}")
+        except Exception as e:
+            print(f"[{uid}] Error processing token refresh: {e}")
+
+        expires_at = meta.get("expires_at")
+        scopes = meta.get("scopes", [])
 
         # Don't call check_mcp_ready here - it launches the MCP server which triggers OAuth popup
         # MCP ready status will be checked when actually using calendar features
-        mcp_ready = has_tokens  # Simplified - assume ready if tokens exist
+        mcp_ready = has_tokens  # Simplified
 
         return {
             "ok": True,
@@ -1249,13 +2305,12 @@ def api_oauth_calendar_validate(request: Request):
 
         from datetime import datetime, timedelta
         try:
-            exp = datetime.fromisoformat(tokens["expires_at"]) if tokens.get("expires_at") else datetime.now(timezone.utc)
-            if exp.tzinfo is None:
-                from datetime import timezone as _tz
-                exp = exp.replace(tzinfo=_tz.utc)
+            exp = datetime.fromisoformat(tokens["expires_at"]) if tokens.get("expires_at") else datetime.now()
+            if exp.tzinfo is not None:
+                exp = exp.astimezone().replace(tzinfo=None)
         except Exception:
-            exp = datetime.now(timezone.utc)
-        now = datetime.now(timezone.utc)
+            exp = datetime.now()
+        now = datetime.now()
         needs_refresh = now >= exp or (exp - now) <= timedelta(minutes=5)
 
         if needs_refresh:
@@ -1288,13 +2343,12 @@ def api_google_userinfo(request: Request):
 
         from datetime import datetime, timedelta
         try:
-            exp = datetime.fromisoformat(tokens["expires_at"]) if tokens.get("expires_at") else datetime.now(timezone.utc)
-            if exp.tzinfo is None:
-                from datetime import timezone as _tz
-                exp = exp.replace(tzinfo=_tz.utc)
+            exp = datetime.fromisoformat(tokens["expires_at"]) if tokens.get("expires_at") else datetime.now()
+            if exp.tzinfo is not None:
+                exp = exp.astimezone().replace(tzinfo=None)
         except Exception:
-            exp = datetime.now(timezone.utc)
-        now = datetime.now(timezone.utc)
+            exp = datetime.now()
+        now = datetime.now()
         access_token = tokens.get("access_token")
         if now >= exp or (exp - now) <= timedelta(minutes=5):
             from services.oauth_handlers import GoogleOAuthHandler
@@ -1332,10 +2386,10 @@ def api_save_api_key(request: Request, payload: Dict[str, Any] = Body(...)):
     """Save user's custom Gemini API key."""
     uid = get_user_id_from_request(request) if request else _uid(None)
     api_key = payload.get("api_key", "")
-    
+
     if not api_key:
         return JSONResponse(status_code=400, content={"ok": False, "error": "API key is required"})
-    
+
     try:
         user_settings = UserSettings(uid)
         result = user_settings.save_api_key(api_key)
@@ -1353,12 +2407,51 @@ def api_save_api_key(request: Request, payload: Dict[str, Any] = Body(...)):
 def api_api_key_status(request: Request):
     """Check if user has custom API key."""
     uid = get_user_id_from_request(request) if request else _uid(None)
-    
+
     try:
         user_settings = UserSettings(uid)
         has_key = user_settings.has_custom_api_key()
-        
+
         return {"ok": True, "has_custom_key": has_key}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
+
+@app.get("/runtime/status")
+def api_runtime_status(request: Request):
+    uid = get_user_id_from_request(request) if request else _uid(None)
+    try:
+        user_settings = UserSettings(uid)
+        has_key = user_settings.has_custom_api_key()
+        v_client = VertexAIClient(user_id=uid)
+        vertex_available = bool(v_client.vertex_ai_available)
+        mode = "unconfigured"
+        if has_key:
+            mode = "byok"
+        elif vertex_available:
+            mode = "vertex_ai"
+        from services.credit_service import get_credit_service
+        credit_service = get_credit_service()
+        balance = credit_service.get_balance(uid)
+        endpoint = None
+        if mode == "vertex_ai":
+            endpoint = "aiplatform.googleapis.com"
+        elif mode == "byok":
+            endpoint = "generativelanguage.googleapis.com"
+        return {
+            "ok": True,
+            "mode": mode,
+            "vertex": {
+                "available": vertex_available,
+                "project": v_client.project_id,
+                "location": v_client.location,
+            },
+            "byok": {
+                "has_custom_key": has_key,
+            },
+            "credits": balance,
+            "endpoint": endpoint,
+        }
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
@@ -1367,7 +2460,7 @@ def api_api_key_status(request: Request):
 def api_delete_api_key(request: Request):
     """Remove user's custom API key."""
     uid = get_user_id_from_request(request) if request else _uid(None)
-    
+
     try:
         user_settings = UserSettings(uid)
         result = user_settings.delete_api_key()
@@ -1407,7 +2500,7 @@ def api_rotate_api_key(request: Request):
 def api_get_credit_balance(request: Request):
     """Get user's current credit balance."""
     uid = get_user_id_from_request(request) if request else _uid(None)
-    
+
     try:
         from services.credit_service import get_credit_service
         credit_service = get_credit_service()
@@ -1420,7 +2513,7 @@ def api_get_credit_balance(request: Request):
 def api_get_credit_history(request: Request, limit: int = 50):
     """Get user's credit transaction history."""
     uid = get_user_id_from_request(request) if request else _uid(None)
-    
+
     try:
         from services.credit_service import get_credit_service
         credit_service = get_credit_service()
@@ -1441,10 +2534,10 @@ def api_admin_allocate_credits(request: Request, payload: Dict[str, Any] = Body(
     user_id = payload.get("user_id")
     amount = payload.get("amount")
     reason = payload.get("reason", "admin_grant")
-    
+
     if not user_id or amount is None:
         return JSONResponse(status_code=400, content={"ok": False, "error": "user_id and amount required"})
-    
+
     try:
         from services.credit_service import get_credit_service
         credit_service = get_credit_service()
@@ -1467,10 +2560,10 @@ def api_admin_initialize_credits(request: Request, payload: Dict[str, Any] = Bod
     if not expected or admin_token != expected:
         return JSONResponse(status_code=401, content={"ok": False, "error": "unauthorized"})
     user_id = payload.get("user_id")
-    
+
     if not user_id:
         return JSONResponse(status_code=400, content={"ok": False, "error": "user_id required"})
-    
+
     try:
         from services.credit_service import get_credit_service
         credit_service = get_credit_service()
@@ -1481,7 +2574,7 @@ def api_admin_initialize_credits(request: Request, payload: Dict[str, Any] = Bod
 
 
 @app.post("/chat/respond")
-def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
+async def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
     """
     Main chat endpoint for generating agent responses.
 
@@ -1501,23 +2594,63 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
     uid = get_user_id_from_request(request) if request else _uid(None)
     text = payload.get("text", "")
     session_id = payload.get("session_id") or uuid4().hex
+    country_code = payload.get("country")
     try:
+        tz_name = request.headers.get("X-Client-Timezone") if request else None
         try:
             from services.metrics_service import enforce_rate_limit
             if not enforce_rate_limit(uid):
                 return {"text": "Rate limit exceeded. Please wait a minute and try again.", "tools": [], "session_id": session_id, "error": "rate_limited"}
         except Exception:
             pass
-        last_text, tool_results = adk_respond(uid, session_id, text)
+        # Handle direct date/time queries using client timezone offset or IANA timezone (device time)
+        try:
+            lowq = (text or "").lower()
+            if any(k in lowq for k in ["today's date", "todays date", "today date", "what's the date", "what is the date", "current time", "what time is it"]):
+                from datetime import datetime, timezone, timedelta, tzinfo
+                from zoneinfo import ZoneInfo
+                offset_str = request.headers.get("X-Client-Offset-Minutes") if request else None
+                offset = int(offset_str) if (offset_str and offset_str.strip().lstrip("-+").isdigit()) else 0
+                now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+                local_tz: tzinfo
+                if tz_name:
+                    try:
+                        local_tz = ZoneInfo(tz_name)
+                    except Exception:
+                        local_tz = timezone(timedelta(minutes=offset))
+                else:
+                    local_tz = timezone(timedelta(minutes=offset))
+                now_local = now_utc.astimezone(local_tz)
+                # Format friendly date (e.g., Monday, December 8, 2025)
+                friendly = now_local.strftime("%A, %B %-d, %Y") if hasattr(now_local, "strftime") else now_local.isoformat()
+                # Some platforms don't support %-d (day w/o leading zero); fallback
+                try:
+                    friendly = now_local.strftime("%A, %B %-d, %Y")
+                except Exception:
+                    friendly = now_local.strftime("%A, %B %d, %Y")
+                time_str = now_local.strftime("%I:%M %p")
+                return {"text": f"Today is {friendly}. The local time is {time_str}.", "tools": [{"ui_mode": "internal", "result": {"offset_minutes": offset, "timezone": tz_name, "iso": now_local.isoformat()}}], "session_id": session_id}
+        except Exception:
+            pass
+        try:
+            # Set timezone context for tools relative to THIS request
+            token_tz = current_user_timezone.set(tz_name)
+            try:
+                last_text, tool_results = await adk_respond(uid, session_id, text, time_zone=tz_name, country_code=country_code)
+            finally:
+                current_user_timezone.reset(token_tz)
+        except Exception as e:
+            # Just log and continue if adk_respond fails (it handles its own errors usually but wrapping here is safe)
+            raise e
         return {"text": last_text, "tools": tool_results, "session_id": session_id}
     except Exception as e:
         msg = str(e)
         try:
-            print(f"[{datetime.now(timezone.utc).isoformat()}] /chat/respond error uid={uid} sid={session_id}: {msg}")
+            print(f"[{datetime.now().isoformat()}] /chat/respond error uid={uid} sid={session_id}: {msg}")
         except Exception:
             pass
         # Basic structured error payload for client diagnostics
-        err = {"message": msg}
+        err: Dict[str, Any] = {"message": msg}
         if "INTERNAL" in msg:
             err["code"] = 500
             err["status"] = "INTERNAL"
@@ -1528,15 +2661,14 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
         try:
             low = text.lower()
             if "calendar" in low or "event" in low or "add an event" in low:
-                import asyncio
                 from services.calendar_mcp import create_calendar_event_intent, _create_event_async, _create_recurring_event_async
                 intent = create_calendar_event_intent(text, default_title="Appointment")
                 if intent.get("ok") and intent.get("intent"):
                     i = intent["intent"]
                     if i.get("recurrence"):
-                        res = asyncio.run(_create_recurring_event_async(i["summary"], i["start"], i["end"], i["recurrence"], calendar_id="primary", location=i.get("location"), description=i.get("description"), user_id=uid))
+                        res = await _create_recurring_event_async(i["summary"], i["start"], i["end"], i["recurrence"], calendar_id="primary", location=i.get("location"), description=i.get("description"), user_id=uid, time_zone=tz_name)
                     else:
-                        res = asyncio.run(_create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description"), user_id=uid))
+                        res = await _create_event_async(i["summary"], i["start"], i["end"], i.get("location"), i.get("description"), user_id=uid, time_zone=tz_name)
                     msg_nl = _nl_event_confirmation(i["summary"], i["start"], i["end"], i.get("location"), "your primary calendar")
                     return {"text": msg_nl, "tools": [{"ui_mode": "internal", "result": res}], "session_id": session_id}
             use_search = bool(payload.get('google_search'))
@@ -1554,8 +2686,7 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
                     runner = Runner(agent=search_agent, app_name="altered", session_service=InMemorySessionService())
                     content = types.Content(role="user", parts=[types.Part(text=text)])
                     last_text = ""
-                    tool_results: list = []
-                    import asyncio as _asyncio
+                    search_tool_results: list = []
                     async def _run():
                         async for ev in runner.run_async(user_id=uid, session_id=session_id, new_message=content):
                             if ev.content and ev.content.parts:
@@ -1564,11 +2695,11 @@ def api_chat_respond(request: Request, payload: Dict[str, Any] = Body(...)):
                                     last_text = t
                             if getattr(ev, "actions", None) and getattr(ev.actions, "tools", None):
                                 for tl in ev.actions.tools:
-                                    tool_results.append(tl)
-                        return last_text, tool_results
-                    last_text, tool_results = _asyncio.run(_run())
+                                    search_tool_results.append(tl)
+                        return last_text, search_tool_results
+                    last_text, search_tool_results = await _run()
                     msg_nl = last_text or "Here are a few things I found."
-                    return {"text": msg_nl, "tools": tool_results, "session_id": session_id}
+                    return {"text": msg_nl, "tools": search_tool_results, "session_id": session_id}
                 except Exception as ge:
                     msg_nl = f"Google Search fallback error: {str(ge)}"
                     return {"text": msg_nl, "tools": [{"ui_mode": "internal", "error": str(ge)}], "session_id": session_id}
@@ -1594,7 +2725,8 @@ def api_chat_command(request: Request, payload: Dict[str, Any] = Body(...)):
     text = payload.get("text", "")
     session_id = payload.get("session_id") or uuid4().hex
     cmd, args = parse_chat_command(text)
-    res = execute_chat_command(uid, session_id, cmd, args)
+    tz_name = request.headers.get("X-Client-Timezone") if request else None
+    res = execute_chat_command(uid, session_id, cmd, args, tz_name)
     return {"ok": res.get("ok", False), **res, "session_id": session_id}
 
 
@@ -1613,9 +2745,16 @@ def _nl_event_confirmation(title: str, start_iso: str, end_iso: str, location: O
     Helper to generate a natural language confirmation for a created event.
     """
     try:
-        s = datetime.fromisoformat(start_iso)
-        e = datetime.fromisoformat(end_iso)
-        today = datetime.now().date()
+        s_str = start_iso
+        e_str = end_iso
+        if s_str.endswith("Z"):
+            s_str = s_str[:-1] + "+00:00"
+        if e_str.endswith("Z"):
+            e_str = e_str[:-1] + "+00:00"
+        s = datetime.fromisoformat(s_str)
+        e = datetime.fromisoformat(e_str)
+        now_same_tz = datetime.now(s.tzinfo) if s.tzinfo else datetime.now().astimezone()
+        today = now_same_tz.date()
         day_phrase = s.strftime("%A %b %d")
         # safer tomorrow check
         try:
@@ -1638,3 +2777,71 @@ def _nl_event_confirmation(title: str, start_iso: str, end_iso: str, location: O
     except Exception:
         extra = f" at {location}" if location else ""
         return f"Event created: {title} ({start_iso} - {end_iso}){extra}."
+
+
+# ===== Real-time Voice WebSocket =====
+
+@app.websocket("/ws/voice")
+async def voice_websocket(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time voice conversations using Gemini Live API.
+    
+    Protocol:
+    - Client sends: {"type": "audio", "data": "<base64 PCM audio>"}
+    - Client sends: {"type": "text", "data": "<text message>"}
+    - Client sends: {"type": "config", "voice": "...", "system_prompt": "..."}
+    - Server sends: {"type": "audio", "data": "<base64 PCM audio>"}
+    - Server sends: {"type": "text", "data": "<text>"}
+    - Server sends: {"type": "transcript", "data": "<transcript>", "is_final": bool}
+    - Server sends: {"type": "state", "state": "<state>"}
+    - Server sends: {"type": "error", "message": "<error>"}
+    
+    Query parameters:
+    - user_id: User identifier
+    - voice: Voice name (default: Aoede)
+    - system_prompt: System instruction for the model
+    """
+    await websocket.accept()
+
+    # Get query parameters
+    user_id = websocket.query_params.get("user_id", "anonymous")
+    voice = websocket.query_params.get("voice", "Aoede")
+    system_prompt = websocket.query_params.get("system_prompt", "")
+
+    # If system_prompt not in query, try to get from first message
+    if not system_prompt:
+        system_prompt = """You are NeuroPilot, a supportive AI assistant designed specifically for people with ADHD. 
+You help with task management, focus sessions, and provide encouragement. 
+Keep responses concise and actionable. Be warm, understanding, and patient.
+When the user seems overwhelmed, help break things down into smaller steps."""
+
+    logger.info(f"Voice WebSocket connection from user {user_id}, voice={voice}")
+
+    try:
+        await handle_voice_websocket(
+            websocket=websocket,
+            user_id=user_id,
+            system_prompt=system_prompt,
+            voice=voice,
+        )
+    except WebSocketDisconnect:
+        logger.info(f"Voice WebSocket disconnected for user {user_id}")
+    except Exception as e:
+        logger.error(f"Voice WebSocket error for user {user_id}: {e}", exc_info=True)
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except Exception:
+            pass
+
+
+@app.get("/voice/status")
+async def voice_status():
+    """
+    Check the status of the Gemini Live API service.
+    """
+    initialized = GeminiLiveService.initialize()
+    return {
+        "ok": initialized,
+        "service": "gemini_live",
+        "status": "available" if initialized else "unavailable",
+    }

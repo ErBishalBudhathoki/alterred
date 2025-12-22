@@ -11,3 +11,7 @@ google-auth-oauthlib
 cryptography
 mcp
 requests
+piper-tts
+numpy
+soundfile
+hypothesis

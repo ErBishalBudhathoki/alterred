@@ -13,15 +13,15 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO_OWNER="your-username"  # TODO: Update this with your GitHub username
-REPO_NAME="neuropilot"      # TODO: Update this with your repository name
+REPO_OWNER="bishalbudhathoki"  # TODO: Update this with your GitHub username
+REPO_NAME="altered"      # TODO: Update this with your repository name
 REPO="$REPO_OWNER/$REPO_NAME"
 
 echo -e "${BLUE}🛡️  Setting up branch protection rules for $REPO${NC}"
 echo -e "${YELLOW}⚠️  Please update REPO_OWNER and REPO_NAME variables in this script first!${NC}"
 
 # Verify configuration
-if [ "$REPO_OWNER" = "your-username" ]; then
+if [ "$REPO_OWNER" = "bishalbudhathoki" ]; then
     echo -e "${RED}❌ Please update REPO_OWNER variable with your GitHub username${NC}"
     echo -e "Edit this script and change 'your-username' to your actual GitHub username"
     exit 1

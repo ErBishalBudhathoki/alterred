@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:altered/state/session_state.dart';
 
 void main() {
-  test('savedLocaleProvider loads locale from SharedPreferences', () async {
-    SharedPreferences.setMockInitialValues({'locale_code': 'en'});
+  test('savedLocaleProvider loads locale from SecureStorage', () async {
+    FlutterSecureStorage.setMockInitialValues({'locale_code': 'en'});
+
     final container = ProviderContainer();
     addTearDown(container.dispose);
     final locale = await container.read(savedLocaleProvider.future);

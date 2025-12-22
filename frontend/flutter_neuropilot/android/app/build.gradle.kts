@@ -32,15 +32,15 @@ val prodGoogleServices = localProps.getProperty("firebase.google_services.prod")
 val finalDevGoogleServices = if (file(devGoogleServices).exists()) devGoogleServices else "google-services.json"
 val finalProdGoogleServices = if (file(prodGoogleServices).exists()) prodGoogleServices else "google-services.json"
 
-println("Using Dev Google Services: $finalDevGoogleServices")
-println("Using Prod Google Services: $finalProdGoogleServices")
-
 tasks.register<Copy>("copyGoogleServicesDev") {
     val src = file(finalDevGoogleServices)
     if (src.exists()) {
         from(src)
         into("src/development")
         rename { "google-services.json" }
+        doFirst {
+            println("Using Dev Google Services: ${src.path}")
+        }
     }
 }
 
@@ -50,6 +50,9 @@ tasks.register<Copy>("copyGoogleServicesProd") {
         from(src)
         into("src/production")
         rename { "google-services.json" }
+        doFirst {
+            println("Using Prod Google Services: ${src.path}")
+        }
     }
 }
 
@@ -102,9 +105,16 @@ flutter {
     source = "../.."
 }
 
+val isDevBuild = gradle.startParameter.taskNames.any { it.contains("Development") }
+val isProdBuild = gradle.startParameter.taskNames.any { it.contains("Production") }
+
 tasks.named("preBuild").configure {
-    dependsOn("copyGoogleServicesDev")
-    dependsOn("copyGoogleServicesProd")
+    if (isDevBuild) {
+        dependsOn("copyGoogleServicesDev")
+    }
+    if (isProdBuild) {
+        dependsOn("copyGoogleServicesProd")
+    }
 }
 
 tasks.configureEach {
@@ -114,5 +124,12 @@ tasks.configureEach {
         } else if (name.contains("Production")) {
             dependsOn("copyGoogleServicesProd")
         }
+    }
+    // Fix implicit dependency warnings for all Development tasks
+    if (name.contains("Development")) {
+        mustRunAfter("copyGoogleServicesDev")
+    }
+    if (name.contains("Production")) {
+        mustRunAfter("copyGoogleServicesProd")
     }
 }

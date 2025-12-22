@@ -1,5 +1,4 @@
 import os
-import json
 from sessions.session_storage import SessionEvent
 
 def test_file_backend_roundtrip(tmp_path):
@@ -7,7 +6,7 @@ def test_file_backend_roundtrip(tmp_path):
     os.environ["SESSIONS_DIR"] = str(path)
     from sessions.file_session_storage import FileSessionStorage
     storage = FileSessionStorage()
-    meta = storage.create_session("app", "user", "sess_test")
+    storage.create_session("app", "user", "sess_test")
     state = {"k": "v"}
     storage.update_state("app", "user", "sess_test", state)
     ev = SessionEvent(id="1", author="user", content=[{"text": "hi"}], tool_calls=[], created_at="2025-01-01T00:00:00Z")

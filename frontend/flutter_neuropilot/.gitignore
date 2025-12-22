@@ -43,3 +43,28 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+/UI2WORK
+issues.md
+
+# Test files and coverage
+test/
+*test*.dart
+coverage/
+.nyc_output/
+
+# Firebase configuration files
+google-services.json
+GoogleService-Info.plist
+firebase-debug.log
+firebase-debug.*.log
+
+# Build artifacts
+.dart_tool/
+.flutter-plugins*
+.packages
+pubspec.lock
+
+# IDE files
+.vscode/settings.json
+.vscode/launch.json

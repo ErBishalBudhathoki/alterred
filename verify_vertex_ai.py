@@ -1,6 +1,5 @@
 import os
-import sys
-from services.vertex_ai_client import VertexAIClient, ClientMode
+from services.vertex_ai_client import VertexAIClient
 
 def verify():
     print("Verifying Vertex AI Client Configuration...")

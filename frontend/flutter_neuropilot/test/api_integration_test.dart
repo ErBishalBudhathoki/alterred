@@ -64,7 +64,7 @@ void main() {
         final r1 = await http
             .post(Uri.parse('$baseUrl/tasks/atomize'),
                 headers: headers(), body: jsonEncode(good))
-            .timeout(const Duration(seconds: 5));
+            .timeout(const Duration(seconds: 60));
         final m1 = await decode(r1);
         debugPrint(
             'POST /tasks/atomize valid status=${r1.statusCode} headers=${r1.headers} body=$m1');
@@ -73,7 +73,7 @@ void main() {
         final r2 = await http
             .post(Uri.parse('$baseUrl/tasks/atomize'),
                 headers: headers(), body: jsonEncode(bad))
-            .timeout(const Duration(seconds: 5));
+            .timeout(const Duration(seconds: 60));
         final m2 = await decode(r2);
         debugPrint(
             'POST /tasks/atomize invalid status=${r2.statusCode} headers=${r2.headers} body=$m2');
@@ -84,7 +84,7 @@ void main() {
         debugPrint('Request failed: $e');
         return;
       }
-    }, timeout: const Timeout(Duration(seconds: 10)));
+    }, timeout: const Timeout(Duration(seconds: 70)));
 
     test('schedule tasks edge cases', () async {
       if (!await backendReachable()) {

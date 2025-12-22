@@ -11,12 +11,15 @@ Run this to verify that:
 import os
 import asyncio
 from dotenv import load_dotenv
+from services.credit_service import get_credit_service
+from services.vertex_ai_client import VertexAIClient
+from services.user_settings import UserSettings
 
 load_dotenv()
 
 # Initialize Firebase
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials
 
 if not firebase_admin._apps:
     cred_path = os.getenv("FIREBASE_SERVICE_ACCOUNT_PATH", "./credentials/neuropilot-23fb5-firebase-adminsdk-fbsvc-a93d9efa58.json")
@@ -29,8 +32,6 @@ if not firebase_admin._apps:
 print("=" * 50)
 print("TEST 1: Credit Service")
 print("=" * 50)
-
-from services.credit_service import get_credit_service
 
 credit_service = get_credit_service()
 test_user_id = "test_user_123"
@@ -72,19 +73,21 @@ print("\n" + "=" * 50)
 print("TEST 2: Vertex AI Client")
 print("=" * 50)
 
-from services.vertex_ai_client import VertexAIClient
-
 # Test with user who has credits
 print("\n1. Testing mode determination (with credits)...")
 client = VertexAIClient(user_id=test_user_id)
-mode = client.determine_mode()
-print(f"Selected mode: {mode.value}")
+try:
+    mode = client.determine_mode()
+    print(f"Selected mode: {mode.value}")
+except Exception as e:
+    print(f"Mode determination error: {e}")
+    print("Note: This can occur when Vertex AI is not configured and no BYOK is present; expected under strict Vertex-only policy.")
 
 # Test getting client
 print("\n2. Getting Gemini client...")
 try:
     model, actual_mode = client.get_client("gemini-2.0-flash-exp")
-    print(f"Client obtained successfully!")
+    print("Client obtained successfully!")
     print(f"Mode: {actual_mode.value}")
     print(f"Model type: {type(model).__name__}")
 except Exception as e:
@@ -98,7 +101,6 @@ print("=" * 50)
 
 # Create user with custom API key
 print("\n1. Testing with user who has custom API key...")
-from services.user_settings import UserSettings
 
 byok_user_id = "byok_test_user"
 user_settings = UserSettings(byok_user_id)

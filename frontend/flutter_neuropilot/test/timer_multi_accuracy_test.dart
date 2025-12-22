@@ -6,9 +6,17 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:altered/screens/chat_screen.dart' as chat;
 import 'package:altered/state/session_state.dart';
 import 'package:altered/services/api_client.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class FakeApiClient extends ApiClient {
   FakeApiClient() : super(baseUrl: 'http://example.com');
+
+  @override
+  Future<Map<String, dynamic>> health() async {
+    return {'ok': true, 'status': 'ok'};
+  }
+
   @override
   Future<Map<String, dynamic>> createCountdown(String query) async {
     final s = query.toLowerCase();
@@ -58,34 +66,47 @@ Widget _buildApp(Widget child) {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+  FlutterSecureStorage.setMockInitialValues({});
+
   testWidgets('Short timer displays two-digit seconds countdown',
       (tester) async {
     await tester.pumpWidget(_buildApp(const chat.ChatScreen()));
+    await tester.pump(const Duration(milliseconds: 50));
     await tester.enterText(find.byType(TextField), 'set timer for 59 sec');
     await tester.tap(find.byIcon(Icons.send));
     await tester.pump(const Duration(milliseconds: 200));
-    await tester.tap(find.text('Timers'));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.textContaining('Active — 59'), findsOneWidget);
+    final cardFinder = find.byWidgetPredicate((w) =>
+        w is Container &&
+        w.key is ValueKey &&
+        ((w.key as ValueKey).value.toString().startsWith('timer-card-')));
+    expect(cardFinder, findsOneWidget);
+    expect(find.textContaining('of 00:00:59'), findsWidgets);
   });
 
   testWidgets('Five concurrent timers created via one request', (tester) async {
     await tester.pumpWidget(_buildApp(const chat.ChatScreen()));
+    await tester.pump(const Duration(milliseconds: 50));
     await tester.enterText(find.byType(TextField),
         'set timer for 5 sec, 7 sec, 9 sec, 11 sec, 13 sec');
     await tester.tap(find.byIcon(Icons.send));
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text('Timers'));
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.textContaining('Timer set for '), findsNWidgets(5));
+    final cardFinder = find.byWidgetPredicate((w) =>
+        w is Container &&
+        w.key is ValueKey &&
+        ((w.key as ValueKey).value.toString().startsWith('timer-card-')));
+    expect(cardFinder, findsNWidgets(5));
   });
 
   testWidgets('Countdown updates over 1 second', (tester) async {
     await tester.pumpWidget(_buildApp(const chat.ChatScreen()));
+    await tester.pump(const Duration(milliseconds: 50));
     await tester.enterText(find.byType(TextField), 'set timer for 10 sec');
     await tester.tap(find.byIcon(Icons.send));
     await tester.pump(const Duration(milliseconds: 300));
-    await tester.tap(find.text('Timers'));
     await tester.pump(const Duration(milliseconds: 100));
     final cardFinder = find.byWidgetPredicate((w) =>
         w is Container &&

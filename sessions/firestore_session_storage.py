@@ -61,8 +61,8 @@ class FirestoreSessionStorage(SessionStorage):
         Returns:
             SessionMeta: The created session metadata object.
         """
-        now = datetime.utcnow().isoformat()
-        expires = compute_expiry(datetime.utcnow(), ttl_days or self.ttl_days)
+        now = datetime.now().isoformat()
+        expires = compute_expiry(datetime.now(), ttl_days or self.ttl_days)
         meta = {
             "session_id": session_id,
             "user_id": user_id,
@@ -116,7 +116,7 @@ class FirestoreSessionStorage(SessionStorage):
         """
         ref = self._path(app_name, user_id, session_id)
         ref.collection("state").document("state").set({"data": state}, merge=True)
-        ref.update({"meta.last_activity": datetime.utcnow().isoformat()})
+        ref.update({"meta.last_activity": datetime.now().isoformat()})
 
     def list_sessions(self, user_id: str, app_name: str, limit: int = 20, order: str = "desc") -> List[SessionMeta]:
         """

@@ -1,7 +1,7 @@
 
 import unittest
 from unittest.mock import MagicMock, patch, mock_open
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import sys
 import os
 import json
@@ -94,7 +94,7 @@ class TestCalendarMCPAuth(unittest.TestCase):
         mock_settings_instance.get_oauth_tokens.return_value = {
             "access_token": "valid_access_token",
             "refresh_token": "valid_refresh_token",
-            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+            "expires_at": (datetime.now() + timedelta(hours=1)).isoformat(),
             "scopes": ["scope1"]
         }
         
@@ -123,7 +123,7 @@ class TestCalendarMCPAuth(unittest.TestCase):
         mock_settings_instance.get_oauth_tokens.return_value = {
             "access_token": "expired_access_token",
             "refresh_token": "valid_refresh_token",
-            "expires_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+            "expires_at": (datetime.now() - timedelta(hours=1)).isoformat(),
             "scopes": ["scope1"]
         }
         
@@ -132,7 +132,7 @@ class TestCalendarMCPAuth(unittest.TestCase):
         mock_oauth_instance.refresh_access_token.return_value = {
             "ok": True,
             "access_token": "new_access_token",
-            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+            "expires_at": (datetime.now() + timedelta(hours=1)).isoformat()
         }
         
         # Mock tempfile
@@ -156,7 +156,7 @@ class TestCalendarMCPAuth(unittest.TestCase):
         mock_settings_instance.get_oauth_tokens.return_value = {
             "access_token": "expired_access_token",
             "refresh_token": "invalid_refresh_token",
-            "expires_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+            "expires_at": (datetime.now() - timedelta(hours=1)).isoformat(),
             "scopes": ["scope1"]
         }
         

@@ -2,7 +2,7 @@
 import unittest
 import sys
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # Add project root to path
 sys.path.append(os.getcwd())
@@ -60,7 +60,8 @@ class TestCalendarMCP(unittest.TestCase):
         self.assertEqual(intent["summary"].lower(), "project alpha")
         self.assertIsNotNone(intent["start"])
         self.assertIsNotNone(intent["end"])
-        self.assertEqual(intent["recurrence"], "RRULE:FREQ=WEEKLY;BYDAY=FR")
+        self.assertIsInstance(intent["recurrence"], list)
+        self.assertEqual(intent["recurrence"][0], "RRULE:FREQ=WEEKLY;BYDAY=FR")
 
     def test_special_characters_in_title(self):
         title = "Meeting: Project X & Y (Final)"

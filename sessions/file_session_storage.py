@@ -47,8 +47,8 @@ class FileSessionStorage(SessionStorage):
         """
         Creates a new session tree with default files.
         """
-        now = datetime.utcnow().isoformat()
-        expires = compute_expiry(datetime.utcnow(), ttl_days)
+        now = datetime.now().isoformat()
+        expires = compute_expiry(datetime.now(), ttl_days)
         meta = SessionMeta(session_id=session_id, user_id=user_id, app_name=app_name, created_at=now, last_activity=now, expires_at=expires, status="active", version=1)
         d = self._dir(app_name, user_id, session_id)
         (d / "meta.json").write_text(json.dumps(meta.__dict__))
@@ -89,7 +89,7 @@ class FileSessionStorage(SessionStorage):
         d = self._dir(app_name, user_id, session_id)
         (d / "state.json").write_text(json.dumps({"data": state}))
         meta = json.loads((d / "meta.json").read_text())
-        meta["last_activity"] = datetime.utcnow().isoformat()
+        meta["last_activity"] = datetime.now().isoformat()
         (d / "meta.json").write_text(json.dumps(meta))
 
     def list_sessions(self, user_id: str, app_name: str, limit: int = 20, order: str = "desc") -> List[SessionMeta]:
