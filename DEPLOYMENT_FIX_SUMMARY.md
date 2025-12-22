@@ -21,9 +21,10 @@
 
 **Root Causes Identified**:
 1. Secret validation was not actually validating secrets (just echoing success)
-2. Missing explicit PORT environment variable
-3. Insufficient error logging for debugging
-4. No health check verification after deployment
+2. ~~Missing explicit PORT environment variable~~ **FIXED**: Cloud Run sets PORT automatically
+3. Invalid `--startup-cpu-boost` flag (should be `--cpu-boost`)
+4. Insufficient error logging for debugging
+5. No health check verification after deployment
 
 **Actions Taken**:
 
@@ -54,7 +55,7 @@
 ```yaml
 # Added explicit PORT and better flags
 env_vars: |
-  PORT=8080  # Explicitly set PORT
+  # PORT=8080 - REMOVED: Cloud Run sets this automatically
   # ... other env vars
 
 flags: >-
@@ -64,7 +65,7 @@ flags: >-
   --memory=2Gi 
   --max-instances=10 
   --cpu-throttling 
-  --startup-cpu-boost  # NEW: Helps with cold starts
+  --cpu-boost  # FIXED: Was --startup-cpu-boost
 ```
 
 #### C. Enhanced Deployment Verification
