@@ -1,0 +1,23 @@
+# Global code owners
+* @BishalBudhathoki
+
+# Deployment and infrastructure
+/.github/workflows/ @BishalBudhathoki
+/scripts/ @BishalBudhathoki
+/Dockerfile @BishalBudhathoki
+/firebase.json @BishalBudhathoki
+
+# Security-sensitive files
+/.env.example @BishalBudhathoki
+/.gitignore @BishalBudhathoki
+/credentials/ @BishalBudhathoki
+
+# Backend API
+/api_server.py @BishalBudhathoki
+/routers/ @BishalBudhathoki
+/services/ @BishalBudhathoki
+
+# Frontend core
+/frontend/flutter_neuropilot/lib/core/ @BishalBudhathoki
+/frontend/flutter_neuropilot/lib/services/ @BishalBudhathoki
+/frontend/flutter_neuropilot/lib/state/ @BishalBudhathoki

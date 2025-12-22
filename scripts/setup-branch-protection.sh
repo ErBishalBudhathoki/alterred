@@ -13,19 +13,11 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO_OWNER="bishalbudhathoki"  # TODO: Update this with your GitHub username
-REPO_NAME="altered"      # TODO: Update this with your repository name
+REPO_OWNER="BishalBudhathoki"  # Your GitHub username
+REPO_NAME="alterred"           # Your repository name
 REPO="$REPO_OWNER/$REPO_NAME"
 
 echo -e "${BLUE}🛡️  Setting up branch protection rules for $REPO${NC}"
-echo -e "${YELLOW}⚠️  Please update REPO_OWNER and REPO_NAME variables in this script first!${NC}"
-
-# Verify configuration
-if [ "$REPO_OWNER" = "bishalbudhathoki" ]; then
-    echo -e "${RED}❌ Please update REPO_OWNER variable with your GitHub username${NC}"
-    echo -e "Edit this script and change 'your-username' to your actual GitHub username"
-    exit 1
-fi
 
 # Check if GitHub CLI is installed and authenticated
 if ! command -v gh &> /dev/null; then
@@ -118,28 +110,28 @@ echo -e "\n${BLUE}📝 Setting up CODEOWNERS${NC}"
 if [ ! -f ".github/CODEOWNERS" ]; then
     cat > .github/CODEOWNERS << 'EOF'
 # Global code owners
-* @your-username  # TODO: Update with your GitHub username
+* @BishalBudhathoki
 
 # Deployment and infrastructure
-/.github/workflows/ @your-username
-/scripts/ @your-username
-/Dockerfile @your-username
-/firebase.json @your-username
+/.github/workflows/ @BishalBudhathoki
+/scripts/ @BishalBudhathoki
+/Dockerfile @BishalBudhathoki
+/firebase.json @BishalBudhathoki
 
 # Security-sensitive files
-/.env.example @your-username
-/.gitignore @your-username
-/credentials/ @your-username
+/.env.example @BishalBudhathoki
+/.gitignore @BishalBudhathoki
+/credentials/ @BishalBudhathoki
 
 # Backend API
-/api_server.py @your-username
-/routers/ @your-username
-/services/ @your-username
+/api_server.py @BishalBudhathoki
+/routers/ @BishalBudhathoki
+/services/ @BishalBudhathoki
 
 # Frontend core
-/frontend/flutter_neuropilot/lib/core/ @your-username
-/frontend/flutter_neuropilot/lib/services/ @your-username
-/frontend/flutter_neuropilot/lib/state/ @your-username
+/frontend/flutter_neuropilot/lib/core/ @BishalBudhathoki
+/frontend/flutter_neuropilot/lib/services/ @BishalBudhathoki
+/frontend/flutter_neuropilot/lib/state/ @BishalBudhathoki
 EOF
     echo -e "${GREEN}✅ Created .github/CODEOWNERS${NC}"
 else
