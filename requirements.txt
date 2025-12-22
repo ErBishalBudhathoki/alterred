@@ -2,6 +2,8 @@ google-adk
 google-genai
 google-generativeai
 google-cloud-aiplatform
+google-cloud-speech
+google-cloud-texttospeech
 fastapi
 firebase-admin
 uvicorn
