@@ -4,6 +4,8 @@ import 'dart:math';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:app_links/app_links.dart';
+import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart';
 import '../models/notion_models.dart';
 import '../notion_mcp_config.dart';
 import '../../observability/logging_service.dart';
@@ -201,6 +203,9 @@ class NotionAuthService {
         await _revokeToken(_currentConnection.accessToken!);
       }
 
+      // Remove token from backend
+      await _removeTokenFromBackend();
+
       // Clear stored data
       await _clearStoredConnection();
 
@@ -248,6 +253,11 @@ class NotionAuthService {
           'state': connection.state.name,
           'workspace_name': connection.workspaceName,
         });
+        
+        // If connected locally but might not be synced to backend, sync now
+        if (connection.isConnected && connection.accessToken != null) {
+          _syncTokenToBackend(connection.accessToken!);
+        }
       }
     } catch (e, stackTrace) {
       _logger.error('Failed to load stored connection', {'error': e.toString()},
@@ -369,6 +379,9 @@ class NotionAuthService {
 
       _logger.info('Connecting with internal integration token');
 
+      // First, sync the token to the backend for agent access
+      await _syncTokenToBackend(token);
+
       // Create connection with the provided token
       final connection = NotionConnection(
         state: NotionAuthState.connected,
@@ -393,6 +406,90 @@ class NotionAuthService {
         errorMessage: 'Failed to connect: ${e.toString()}',
       ));
       rethrow;
+    }
+  }
+
+  /// Sync Notion token to backend Firestore for agent tool access
+  Future<void> _syncTokenToBackend(String token) async {
+    try {
+      // Get Firebase ID token for authentication
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        _logger.warning('No authenticated user, skipping backend sync');
+        return;
+      }
+      
+      final idToken = await user.getIdToken();
+      if (idToken == null) {
+        _logger.warning('No auth token available, skipping backend sync');
+        return;
+      }
+
+      // Get API base URL from environment
+      const baseUrl = String.fromEnvironment(
+        'API_BASE_URL',
+        defaultValue: 'http://localhost:8000',
+      );
+      
+      final response = await http.post(
+        Uri.parse('$baseUrl/notion/connect'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
+        body: json.encode({'token': token}),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['ok'] == true) {
+          _logger.info('Notion token synced to backend successfully');
+        } else {
+          _logger.warning('Backend sync returned error: ${data['error']}');
+        }
+      } else {
+        _logger.warning(
+            'Backend sync failed with status ${response.statusCode}: ${response.body}');
+      }
+    } catch (e, stackTrace) {
+      // Don't fail the connection if backend sync fails - local storage still works
+      _logger.error('Failed to sync token to backend', {'error': e.toString()},
+          stackTrace);
+    }
+  }
+
+  /// Remove token from backend when disconnecting
+  Future<void> _removeTokenFromBackend() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        return;
+      }
+      
+      final idToken = await user.getIdToken();
+      if (idToken == null) {
+        return;
+      }
+
+      const baseUrl = String.fromEnvironment(
+        'API_BASE_URL',
+        defaultValue: 'http://localhost:8000',
+      );
+      
+      final response = await http.post(
+        Uri.parse('$baseUrl/notion/disconnect'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        _logger.info('Notion token removed from backend');
+      }
+    } catch (e, stackTrace) {
+      _logger.error('Failed to remove token from backend',
+          {'error': e.toString()}, stackTrace);
     }
   }
 

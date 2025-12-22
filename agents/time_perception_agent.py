@@ -24,6 +24,7 @@ Behavioral Specifications:
 """
 import os
 import datetime
+from typing import Optional
 from google.adk.agents import LlmAgent
 from agents.adk_model import get_adk_model
 from agents.tools import detect_hyperfocus, estimate_real_time
@@ -95,7 +96,7 @@ def create_countdown(natural_language_query: str) -> dict:
         return {"ok": False, "error": "invalid_duration"}
 
 
-def transition_helper(next_event: str, current_time: str = None) -> dict:
+def transition_helper(next_event: str, current_time: Optional[str] = None) -> dict:
     """
     Provides strategies to help users transition to the next event.
 
@@ -167,7 +168,7 @@ def transition_helper(next_event: str, current_time: str = None) -> dict:
     }
 
 
-def reality_calibrator(task_description: str, user_estimate_minutes: int, user_id: str = None) -> dict:
+def reality_calibrator(task_description: str, user_estimate_minutes: int, user_id: Optional[str] = None) -> dict:
     """
     Calibrates user's time estimates based on their historical patterns.
     

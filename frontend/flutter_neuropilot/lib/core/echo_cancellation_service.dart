@@ -31,7 +31,9 @@ class EchoCancellationService {
   static const int _extendedCooldownMs = 3500;
   
   /// Threshold for word overlap ratio to consider as echo
-  static const double _echoThreshold = 0.4;
+  /// Increased from 0.4 to 0.55 to reduce false positives when user speaks new content
+  /// that happens to share some words with the TTS prompt
+  static const double _echoThreshold = 0.55;
   
   /// Silent markers that may be embedded in TTS output
   /// These are phrases that indicate system-generated speech
@@ -131,20 +133,36 @@ class EchoCancellationService {
     final inputWords = _extractWords(sttInput);
     final inputPhrases = _extractPhrases(sttInput);
     
+    // IMPROVEMENT: Check if input has significant NEW content beyond echo words
+    // If user is responding with new information, don't filter even if some words overlap
+    final allEchoWords = <String>{};
+    for (final fp in _recentTts) {
+      if (DateTime.now().difference(fp.timestamp).inSeconds > 30) continue;
+      allEchoWords.addAll(fp.wordSet);
+    }
+    final novelWords = inputWords.difference(allEchoWords);
+    // Reduced threshold from 3 to 2 - even 2 new words indicates user is responding
+    final hasSignificantNovelContent = novelWords.length >= 2;
+    
     for (final fp in _recentTts) {
       // Skip old fingerprints (older than 30 seconds)
       if (DateTime.now().difference(fp.timestamp).inSeconds > 30) continue;
       
       // Check word overlap
       final overlap = _calculateWordOverlap(inputWords, fp.wordSet);
-      if (overlap >= _echoThreshold) {
-        debugPrint('[EchoCancellation] Filtering: Word overlap ${(overlap * 100).toStringAsFixed(1)}% with recent TTS');
+      
+      // If there's significant novel content, be more lenient with overlap threshold
+      // Increased from 0.7 to 0.85 to allow more user responses through
+      final effectiveThreshold = hasSignificantNovelContent ? 0.85 : _echoThreshold;
+      
+      if (overlap >= effectiveThreshold) {
+        debugPrint('[EchoCancellation] Filtering: Word overlap ${(overlap * 100).toStringAsFixed(1)}% with recent TTS (threshold: ${(effectiveThreshold * 100).toStringAsFixed(0)}%, novel words: ${novelWords.length})');
         _totalFiltered++;
         return true;
       }
       
-      // Check phrase matching
-      if (_hasPhraseMatch(inputPhrases, fp.phrases)) {
+      // Check phrase matching - but only if no significant novel content
+      if (!hasSignificantNovelContent && _hasPhraseMatch(inputPhrases, fp.phrases)) {
         debugPrint('[EchoCancellation] Filtering: Phrase match with recent TTS');
         _totalFiltered++;
         return true;
@@ -159,7 +177,7 @@ class EchoCancellationService {
     }
     
     _totalPassed++;
-    debugPrint('[EchoCancellation] Passed: "$sttInput" (filtered=$_totalFiltered, passed=$_totalPassed)');
+    debugPrint('[EchoCancellation] Passed: "$sttInput" (filtered=$_totalFiltered, passed=$_totalPassed, novel=${novelWords.length})');
     return false;
   }
 

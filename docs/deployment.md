@@ -89,6 +89,7 @@ Cloud Run deployment requires these environment variables:
 - `DEFAULT_MODEL`: AI model (e.g., `gemini-2.0-flash`)
 - `PORT`: Container port (automatically set by Cloud Run, defaults to 8080)
 - `FIREBASE_PROJECT_ID`: Firebase project identifier
+- `GOOGLE_APPLICATION_CREDENTIALS`: Path to service account JSON (for Cloud Speech/TTS APIs)
 - Additional variables as needed (see `.env.example`)
 
 ## Requirements
@@ -100,6 +101,10 @@ Cloud Run deployment requires these environment variables:
 
 ### Application Dependencies
 - `requirements.txt`: Python dependencies with version pinning
+  - Core AI: `google-genai`, `google-generativeai`, `google-cloud-aiplatform`
+  - Voice Services: `google-cloud-speech`, `google-cloud-texttospeech`
+  - Web Framework: `fastapi`, `uvicorn`
+  - Firebase: `firebase-admin`
 - `google-calendar-mcp/package.json`: MCP server dependencies
 - `.env` file with required configuration
 

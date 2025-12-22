@@ -89,6 +89,11 @@ class AgentRouter:
             ("meeting" in text_lower)
         ):
             return []
+        
+        # Notion routing: route to specialized notion_agent for better context handling
+        if "notion" in text_lower:
+            return ["notion_agent"]
+        
         matched_agents = set()
         
         # Check for specific multi-agent scenarios (heuristics)

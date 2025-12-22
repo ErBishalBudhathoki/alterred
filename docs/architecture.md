@@ -73,6 +73,7 @@ Each agent is prompts-engineered for a specific cognitive deficit:
     - **Context Compaction**: Summarizes long sessions using Gemini to fit context windows.
     - **Pattern Recognition**: Learns user's "Peak Hours" and "Sensory Triggers" over time.
     - **Hybrid Caching**: Uses in-memory caching for active session summaries to reduce Firestore latency.
+    - **Conversation Context Injection**: Recent messages (last 4-6) are automatically injected into agent requests to maintain conversation continuity across turns.
 
 ### 4. Voice Pipeline
 Two voice modes are available:

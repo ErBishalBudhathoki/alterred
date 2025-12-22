@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive Docker build logging and error reporting
 - Improved Cloud Run deployment with startup CPU boost and better timeout handling
 - **Deployment validation script** (`test_deployment_fix.py`) for pre-deployment checks
+- **Voice service dependencies**: Added `google-cloud-speech` and `google-cloud-texttospeech` to requirements.txt for enhanced voice interaction capabilities
+- **Notion Agent**: New dedicated agent (`agents/notion_agent.py`) for handling Notion operations with multi-turn conversation support
+- **Conversation Context Injection**: Agent requests now automatically include recent conversation history (last 4 messages) to maintain continuity across turns and improve follow-up question handling
 
 ### Changed
 - Updated deployment workflows for better environment isolation

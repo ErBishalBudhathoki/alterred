@@ -244,7 +244,10 @@ git push origin feature/my-feature
   - Git (for version control)
 
 #### Required Accounts & Services
-- **Google Cloud Project** with Gemini API enabled
+- **Google Cloud Project** with the following APIs enabled:
+  - Gemini API (for AI functionality)
+  - Cloud Speech-to-Text API (for voice input)
+  - Cloud Text-to-Speech API (for voice output)
 - **Firebase Project** with Firestore and Hosting
 - **GitHub Account** (for CI/CD and version control)
 

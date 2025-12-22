@@ -30,11 +30,13 @@
 
 Backend proxy for Notion API calls. Required because Flutter Web cannot make direct calls to api.notion.com due to CORS restrictions.
 
-**Authentication:** All endpoints require a Notion token via:
+**Authentication:** Most endpoints require a Notion token via:
 - `Authorization: Bearer <notion_token>` header, or
 - `X-Notion-Token: <notion_token>` header
 
 **Rate Limiting:** 30 requests per minute per IP
+
+### Proxy Endpoints (Notion Token Auth)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -49,6 +51,17 @@ Backend proxy for Notion API calls. Required because Flutter Web cannot make dir
 | `/notion/databases/{database_id}/query` | POST | Query a database |
 | `/notion/users/me` | GET | Get bot user info (validates token) |
 | `/notion/health` | GET | Health check |
+
+### Token Sync Endpoints (Firebase Auth)
+
+These endpoints manage the user's Notion token in Firestore for agent tool access.
+**Authentication:** Requires Firebase ID token via `Authorization: Bearer <firebase_id_token>`
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/notion/connect` | POST | Save Notion token to Firestore. Body: `{"token": "ntn_xxx"}`. Validates token before saving. |
+| `/notion/disconnect` | POST | Remove Notion token from Firestore |
+| `/notion/status` | GET | Check if user has Notion connected. Returns `{"ok": true, "connected": bool}` |
 
 ## WebSocket Endpoints
 

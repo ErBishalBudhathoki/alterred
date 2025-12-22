@@ -342,3 +342,73 @@ class UserSettings:
             return data.get("email")
         except Exception:
             return None
+
+    # ===== Notion Token Management =====
+    
+    def save_notion_token(self, token: str) -> Dict[str, Any]:
+        """
+        Save user's Notion integration token (encrypted).
+        Token should start with 'ntn_' for internal integrations.
+        """
+        try:
+            enc_token = self._encrypt_aes(token)
+            self.db.collection("users").document(self.user_id).collection("settings").document("notion").set({
+                "token": enc_token,
+                "connected": True,
+                "updated_at": firestore.SERVER_TIMESTAMP
+            }, merge=True)
+            
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    
+    def get_notion_token(self) -> Optional[str]:
+        """
+        Retrieve user's Notion token (decrypted).
+        Returns None if not set.
+        """
+        try:
+            doc = self.db.collection("users").document(self.user_id).collection("settings").document("notion").get()
+            
+            if not doc.exists:
+                return None
+            
+            data = doc.to_dict()
+            if not data:
+                return None
+            
+            enc_payload = data.get("token")
+            if enc_payload and isinstance(enc_payload, dict):
+                try:
+                    return self._decrypt_aes(enc_payload)
+                except Exception:
+                    return None
+            return None
+        except Exception:
+            return None
+    
+    def is_notion_connected(self) -> bool:
+        """Check if user has connected Notion."""
+        try:
+            doc = self.db.collection("users").document(self.user_id).collection("settings").document("notion").get()
+            
+            if not doc.exists:
+                return False
+            
+            data = doc.to_dict()
+            return data.get("connected", False)
+        except Exception:
+            return False
+    
+    def delete_notion_token(self) -> Dict[str, Any]:
+        """Remove user's Notion token."""
+        try:
+            self.db.collection("users").document(self.user_id).collection("settings").document("notion").set({
+                "token": firestore.DELETE_FIELD,
+                "connected": False,
+                "disconnected_at": firestore.SERVER_TIMESTAMP
+            }, merge=True)
+            
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}

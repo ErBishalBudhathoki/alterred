@@ -101,6 +101,7 @@ async def tool_create_event(text: str) -> Dict[str, Any]:
             if res.get("ok") and "event" in res:
                 # ENHANCEMENT: Fetch all events for the day of the created event
                 # to trigger the full day's list view in UI with correct metadata (Calendar Name).
+                all_events = [res["event"]]  # Default to just the created event
                 try:
                     from services.google_calendar_direct import list_events_all_calendars
                     
@@ -120,21 +121,31 @@ async def tool_create_event(text: str) -> Dict[str, Any]:
                              start_time=start_time,
                              end_time=end_time
                          )
-                         
-                         return {
-                             "ok": True, 
-                             "ui_mode": "internal",
-                             "result": {"events": all_events}, # Full list with metadata
-                             "intent": i
-                         }
                 except Exception as listing_err:
                      print(f"DEBUG: Failed to list context events: {listing_err}")
 
-                # Fallback to single event if listing fails
+                # Capture tool output for UI rendering (calendar widget)
+                from agents.context import current_tool_outputs
+                try:
+                    outputs = current_tool_outputs.get()
+                    if outputs is not None:
+                        outputs.append({
+                            "tool": "google_calendar_mcp:search_events",
+                            "args": {
+                                "query": text,
+                                "status": "event_created",
+                                "events": all_events
+                            },
+                            "ui_mode": "calendar_events"
+                        })
+                        logger.info(f"Captured calendar create event output for UI: {len(all_events)} events")
+                except Exception as e:
+                    logger.warning(f"Failed to capture calendar tool output: {e}")
+
                 return {
-                    "ok": True,
-                    "ui_mode": "internal",
-                    "result": {"events": [res["event"]]},
+                    "ok": True, 
+                    "ui_mode": "calendar_events",
+                    "result": {"events": all_events},
                     "intent": i
                 }
 
@@ -159,11 +170,15 @@ async def google_calendar_mcp_search_events(query: str) -> Dict[str, Any]:
         Dict[str, Any]: List of events found.
     """
     try:
+        # Get user's timezone - CRITICAL for correct date calculations
+        user_tz = current_user_timezone.get()
+        logger.info(f"Calendar search with user timezone: {user_tz}")
+        
         try:
             parsed = smart_parse_calendar_intent(
                 query, 
                 user_id=current_user_id.get(),
-                time_zone=current_user_timezone.get()
+                time_zone=user_tz
             )
         except Exception as e:
             logger.error(f"Calendar intent parsing failed for query '{query}': {e}")
@@ -174,7 +189,21 @@ async def google_calendar_mcp_search_events(query: str) -> Dict[str, Any]:
 
         if not (start and end):
             lower = query.lower()
-            now = datetime.now().astimezone().replace(microsecond=0)
+            
+            # Use user's timezone for "today" calculations - CRITICAL FIX
+            # Without this, server timezone (UTC) would be used, causing wrong date
+            try:
+                from zoneinfo import ZoneInfo
+                if user_tz:
+                    now = datetime.now(ZoneInfo(user_tz)).replace(microsecond=0)
+                    logger.info(f"Using user timezone {user_tz}, now = {now.isoformat()}")
+                else:
+                    now = datetime.now().astimezone().replace(microsecond=0)
+                    logger.info(f"No user timezone, using server local time: {now.isoformat()}")
+            except Exception as tz_err:
+                logger.warning(f"Timezone parsing failed: {tz_err}, falling back to server time")
+                now = datetime.now().astimezone().replace(microsecond=0)
+            
             if "tomorrow" in lower:
                 base = now + timedelta(days=1)
                 start = base.replace(hour=0, minute=0, second=0).isoformat()
@@ -182,6 +211,8 @@ async def google_calendar_mcp_search_events(query: str) -> Dict[str, Any]:
             else:
                 start = now.replace(hour=0, minute=0, second=0).isoformat()
                 end = now.replace(hour=23, minute=59, second=59).isoformat()
+            
+            logger.info(f"Calendar query date range: {start} to {end}")
 
         # Heuristic: If query looks like a full sentence or contains generic calendar words, clear it
         if qtext:
@@ -243,6 +274,26 @@ async def google_calendar_mcp_search_events(query: str) -> Dict[str, Any]:
                 "ok": False,
                 "error": "Google Calendar is not connected. Please go to Settings → Google Calendar → Connect to use calendar features."
             }
+        
+        # Capture tool output for UI rendering (calendar widget)
+        events = result.get("result", {}).get("events", [])
+        from agents.context import current_tool_outputs
+        try:
+            outputs = current_tool_outputs.get()
+            if outputs is not None:
+                outputs.append({
+                    "tool": "google_calendar_mcp:search_events",
+                    "args": {
+                        "query": query,
+                        "status": "executed_live",
+                        "events": events
+                    },
+                    "ui_mode": "calendar_events"
+                })
+                logger.info(f"Captured calendar tool output for UI: {len(events)} events")
+        except Exception as e:
+            logger.warning(f"Failed to capture calendar tool output: {e}")
+        
         return result
     except Exception as e:
         error_msg = str(e).lower()
@@ -389,3 +440,175 @@ def tool_timer_cancel(timer_id: str) -> Dict[str, Any]:
     return {"ok": False, "error": "timer_not_found"}
 
 search_tool = GoogleSearchTool(bypass_multi_tools_limit=True)
+
+
+# ===== Notion Tools =====
+
+async def tool_notion_create_page(title: str, content: str) -> Dict[str, Any]:
+    """
+    Create a new page in Notion with the given title and content.
+    Use this when the user wants to save notes, ideas, or information to Notion.
+    
+    Args:
+        title (str): The title for the new Notion page. If user doesn't specify a title,
+                    generate one from the content (e.g., first few words or a summary).
+        content (str): The content to write in the page. Supports plain text, 
+                      bullet points (- item), numbered lists (1. item), 
+                      and headings (# Heading, ## Subheading).
+    
+    Returns:
+        Dict[str, Any]: Result with page URL if successful, or error message.
+    
+    Examples:
+        - "Write a note to Notion about today's meeting" -> title="Today's Meeting", content from user
+        - "Save this to Notion: My project ideas..." -> title="Project Ideas", content="My project ideas..."
+        - "Create a Notion page: The project is completed" -> title="Project Completed", content="The project is completed"
+    
+    IMPORTANT: Always call this tool immediately when user wants to save to Notion.
+    Generate a reasonable title from the content if user doesn't explicitly provide one.
+    Do NOT ask the user for a title - just create one from the content.
+    """
+    from services.notion_service import create_notion_page
+    
+    uid = current_user_id.get() or (os.getenv("USER") or "terminal_user")
+    
+    # If title is generic or empty, generate from content
+    if not title or title.lower() in ["note", "untitled", "new page", "notion page"]:
+        # Generate title from first few words of content
+        words = content.split()[:5]
+        title = " ".join(words).rstrip(".,!?")
+        if len(title) > 50:
+            title = title[:47] + "..."
+    
+    result = await create_notion_page(uid, title, content)
+    
+    if result.get("ok"):
+        # Add UI mode for frontend to show success
+        result["ui_mode"] = "notion_page_created"
+        
+        # Capture tool output for UI rendering (Notion widget)
+        from agents.context import current_tool_outputs
+        try:
+            outputs = current_tool_outputs.get()
+            if outputs is not None:
+                page_data = result.get("page", {})
+                outputs.append({
+                    "tool": "notion:create_page",
+                    "args": {
+                        "title": title,
+                        "content": content,
+                    },
+                    "ui_mode": "notion_page_created",
+                    "data": {
+                        "id": page_data.get("id"),
+                        "url": page_data.get("url"),
+                        "title": page_data.get("title", title),
+                        "content": content,
+                        "created_time": result.get("created_time"),
+                    }
+                })
+                logger.info(f"Captured Notion create page output for UI: {page_data.get('title')}")
+        except Exception as e:
+            logger.warning(f"Failed to capture Notion tool output: {e}")
+    
+    return result
+
+
+async def tool_notion_search(query: str) -> Dict[str, Any]:
+    """
+    Search for pages in the user's Notion workspace.
+    Use this to find existing pages before creating new ones or to help user locate content.
+    
+    Args:
+        query (str): Search query to find pages.
+    
+    Returns:
+        Dict[str, Any]: List of matching pages with titles and URLs.
+    
+    Examples:
+        - "Search Notion for meeting notes"
+        - "Find my project pages in Notion"
+    """
+    from services.notion_service import search_notion_pages
+    
+    uid = current_user_id.get() or (os.getenv("USER") or "terminal_user")
+    result = await search_notion_pages(uid, query)
+    
+    if result.get("ok"):
+        result["ui_mode"] = "notion_search_results"
+        
+        # Capture tool output for UI rendering (Notion search widget)
+        from agents.context import current_tool_outputs
+        try:
+            outputs = current_tool_outputs.get()
+            if outputs is not None:
+                pages = result.get("pages", [])
+                outputs.append({
+                    "tool": "notion:search",
+                    "args": {"query": query},
+                    "ui_mode": "notion_search_results",
+                    "data": pages,
+                })
+                logger.info(f"Captured Notion search output for UI: {len(pages)} pages")
+        except Exception as e:
+            logger.warning(f"Failed to capture Notion search output: {e}")
+    
+    return result
+
+
+async def tool_notion_append(page_id: str, content: str) -> Dict[str, Any]:
+    """
+    Append content to an existing Notion page.
+    Use this when the user wants to add more content to a page they've already created.
+    
+    Args:
+        page_id (str): The ID of the Notion page to append to.
+        content (str): The content to append.
+    
+    Returns:
+        Dict[str, Any]: Result indicating success or error.
+    
+    Examples:
+        - "Add this to my meeting notes page"
+        - "Append to my project page: new task completed"
+    """
+    from services.notion_service import append_to_notion_page
+    
+    uid = current_user_id.get() or (os.getenv("USER") or "terminal_user")
+    return await append_to_notion_page(uid, page_id, content)
+
+
+async def tool_notion_list_databases() -> Dict[str, Any]:
+    """
+    List all databases in the user's Notion workspace.
+    Use this to find databases for adding items or to show user their available databases.
+    
+    Returns:
+        Dict[str, Any]: List of databases with titles and IDs.
+    """
+    from services.notion_service import get_notion_databases
+    
+    uid = current_user_id.get() or (os.getenv("USER") or "terminal_user")
+    return await get_notion_databases(uid)
+
+
+async def tool_notion_add_to_database(database_id: str, title: str) -> Dict[str, Any]:
+    """
+    Add a new item to a Notion database.
+    Use this when the user wants to add a task, item, or entry to a Notion database.
+    
+    Args:
+        database_id (str): The ID of the database to add to.
+        title (str): The title/name for the new item.
+    
+    Returns:
+        Dict[str, Any]: Result with item URL if successful.
+    
+    Examples:
+        - "Add 'Buy groceries' to my tasks database"
+        - "Create a new entry in my projects database"
+    """
+    from services.notion_service import add_to_notion_database
+    
+    uid = current_user_id.get() or (os.getenv("USER") or "terminal_user")
+    return await add_to_notion_database(uid, database_id, title)

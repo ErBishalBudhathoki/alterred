@@ -31,7 +31,7 @@ class GoogleSttService:
         cls,
         audio_content: bytes,
         language_code: str = "en-US",
-        mime_type: str = None,
+        mime_type: Optional[str] = None,
     ) -> Dict[str, Any]:
         client = cls.get_client()
         if not client:
@@ -210,7 +210,7 @@ class GoogleSttService:
                 }
 
     @classmethod
-    def transcribe(cls, audio_content: bytes, language_code: str = "en-US", mime_type: str = None) -> Optional[str]:
+    def transcribe(cls, audio_content: bytes, language_code: str = "en-US", mime_type: Optional[str] = None) -> Optional[str]:
         """
         Transcribes audio content using Google Cloud Speech-to-Text.
         """

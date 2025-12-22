@@ -23,6 +23,7 @@ import '../core/components/dopamine_card.dart';
 import '../core/components/decision_helper_card.dart';
 import '../core/components/reevaluation_card.dart';
 import '../core/components/task_prioritization_widget.dart';
+import '../core/components/notion_page_widget.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import '../services/api_client.dart';
@@ -123,7 +124,8 @@ enum _VoiceCardType {
   decisionHelper,
   dopamine,
   timer,
-  taskPrioritization
+  taskPrioritization,
+  notionPage,
 }
 
 /// Result of parsing a timer command.
@@ -191,6 +193,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   List<PrioritizedTaskItem> _prioritizedTasks = [];
   String _prioritizationReasoning = '';
   int _originalTaskCount = 0;
+  
+  // Notion Page State
+  Map<String, dynamic>? _notionPageData;
+  
   String _modeBannerText = '';
   Timer? _modeBannerTimer;
   bool _focusMode = false;
@@ -1107,6 +1113,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                                                   'atomize: ${task.title}');
                                         },
                                       ),
+                                    // Notion Page Created Widget
+                                    if (m.metadata != null &&
+                                        m.metadata!['type'] ==
+                                            'notion_page_created')
+                                      NotionPageWidget(
+                                        pageData: m.metadata!['data']
+                                            as Map<String, dynamic>,
+                                        message: m.content,
+                                      ),
+                                    // Notion Search Results Widget
+                                    if (m.metadata != null &&
+                                        m.metadata!['type'] ==
+                                            'notion_search_results')
+                                      NotionSearchResultsWidget(
+                                        pages: (m.metadata!['data'] as List)
+                                            .cast<dynamic>(),
+                                      ),
                                   ],
                                 ),
                               ),
@@ -1554,6 +1577,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       case _VoiceCardType.timer:
         card = _buildTimerVoiceCard(context);
         break;
+      case _VoiceCardType.notionPage:
+        card = _buildNotionVoiceCard(context);
+        break;
       case _VoiceCardType.none:
         if (_messages.isNotEmpty &&
             _messages.last.role == 'assistant' &&
@@ -1613,6 +1639,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
         return 'Capture Thought';
       case _VoiceCardType.dopamine:
         return 'Dopamine';
+      case _VoiceCardType.notionPage:
+        return 'Notion';
       case _VoiceCardType.none:
         return 'Chat';
     }
@@ -1714,6 +1742,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
             ),
         ],
       ),
+    );
+  }
+
+  Widget _buildNotionVoiceCard(BuildContext context) {
+    if (_notionPageData == null) {
+      return const SizedBox.shrink();
+    }
+    
+    return NotionPageWidget(
+      pageData: _notionPageData!,
     );
   }
 
@@ -3784,6 +3822,28 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
               _recordVoiceCard(_VoiceCardType.taskPrioritization);
             });
             suppressText = true;
+          }
+          // Notion Page Created Widget
+          if (t is Map && t['ui_mode'] == 'notion_page_created') {
+            final pageData = t['data'] as Map<String, dynamic>? ?? {};
+            metadata = {
+              'type': 'notion_page_created',
+              'data': pageData,
+            };
+            // Update state for voice mode
+            setState(() {
+              _notionPageData = pageData;
+              _voiceCardType = _VoiceCardType.notionPage;
+              _recordVoiceCard(_VoiceCardType.notionPage);
+            });
+          }
+          // Notion Search Results Widget
+          if (t is Map && t['ui_mode'] == 'notion_search_results') {
+            final pages = t['data'] as List<dynamic>? ?? [];
+            metadata = {
+              'type': 'notion_search_results',
+              'data': pages,
+            };
           }
         }
 

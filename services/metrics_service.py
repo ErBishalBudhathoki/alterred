@@ -88,7 +88,7 @@ def record_model_usage(
     tokens_input: int = 0,
     tokens_output: int = 0,
     status: str = "success",
-    error: str = None
+    error: Optional[str] = None
 ) -> None:
     """Log model usage metrics."""
     uid = os.getenv("USER") or "terminal_user"
@@ -243,7 +243,7 @@ def record_security_event(kind: str, metadata: Optional[Dict[str, Any]] = None) 
     _metrics_doc(uid, dk).collection("events").add(data)
 
 
-def enforce_rate_limit(user_id: str, limit_per_minute: int = None) -> bool:
+def enforce_rate_limit(user_id: str, limit_per_minute: Optional[int] = None) -> bool:
     """
     Naive Firestore-backed rate limit: track per-minute counters.
     Returns True if allowed, False if over limit.

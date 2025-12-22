@@ -84,7 +84,13 @@ from agents.adk_tools import (
     tool_a2a_list_updates,
     tool_timer_list,
     tool_timer_cancel,
-    search_tool
+    search_tool,
+    # Notion tools
+    tool_notion_create_page,
+    tool_notion_search,
+    tool_notion_append,
+    tool_notion_list_databases,
+    tool_notion_add_to_database,
 )
 from agents.common import auto_compact_callback
 try:
@@ -149,6 +155,14 @@ agent = LlmAgent(
         "Your goal is to be an 'Executive Function Prosthetic' - handling planning, initiating, and regulating so the user doesn't have to. "
         "NEVER say 'I am an AI language model'. You are Altered. "
         "\n"
+        "CONVERSATION CONTEXT & MEMORY (CRITICAL): "
+        "- You will receive [CONVERSATION CONTEXT] with recent messages. USE THIS to understand what's happening. "
+        "- If you asked a question (like 'what title?'), the user's next message IS THE ANSWER. Use it! "
+        "- When you see your previous message asked for something, and user provides it, COMPLETE THE ACTION. "
+        "- Example: If you asked 'What title for the Notion page?' and user says 'Project Update', CREATE the page with that title. "
+        "- NEVER ask the same question twice. If context shows you already asked, the current message is the answer. "
+        "- Trust your previous actions. If you started something, continue it. "
+        "\n"
         "CORE PERSONALITY: "
         "- Proactive: Don't just wait for commands. Anticipate needs based on time/context. "
         "- Direct & Low-Friction: Minimize cognitive load. Short, clear sentences. "
@@ -175,6 +189,11 @@ agent = LlmAgent(
         "For boring tasks: use dopamine_reframe to gamify or add novelty. "
         "For decisions: reduce options and propose defaults. For time/energy: estimate_real_time, detect_hyperfocus, "
         "create_countdown, transition_helper, match_task_to_energy, detect_sensory_overload, routine_vs_novelty_balancer, log_energy. "
+        "For Notion: use tool_notion_create_page to save notes/ideas, tool_notion_search to find pages, "
+        "tool_notion_append to add to existing pages, tool_notion_list_databases and tool_notion_add_to_database for database items. "
+        "When user says 'write a note to Notion' or 'save to Notion', IMMEDIATELY call tool_notion_create_page. "
+        "Generate a title from the content - do NOT ask the user for a title. Just use the first few words or summarize. "
+        "Example: 'Write to Notion: project is done' -> call tool_notion_create_page(title='Project Is Done', content='project is done'). "
         "Use load_firestore_memory to recall past conversations (e.g., yesterday). "
         "ALWAYS assess the user's energy level from their tone and context (1-10). If a clear energy level is detectable "
         "(e.g., 'I am exhausted' -> 2, 'Ready to go!' -> 8), PROACTIVELY use tool_log_energy to log it. "
@@ -204,11 +223,19 @@ agent = LlmAgent(
         body_double_checkin,
         dopamine_reframe,
         search_tool,
+        # Notion tools
+        tool_notion_create_page,
+        tool_notion_search,
+        tool_notion_append,
+        tool_notion_list_databases,
+        tool_notion_add_to_database,
     ],
     after_agent_callback=auto_compact_callback,
 )
 
 from orchestration.manager import OrchestrationManager
+
+from agents.notion_agent import notion_agent
 
 available_agents = {
     "neuropilot_coordinator_adk": agent,
@@ -216,7 +243,8 @@ available_agents = {
     "time_perception_agent": time_perception_agent,
     "energy_sensory_agent": energy_sensory_agent,
     "decision_support_agent": decision_support_agent,
-    "external_brain_agent": external_brain_agent
+    "external_brain_agent": external_brain_agent,
+    "notion_agent": notion_agent,
 }
 
 orchestrator = OrchestrationManager(available_agents, None)
@@ -224,6 +252,39 @@ orchestrator = OrchestrationManager(available_agents, None)
 session_service = FirestoreSessionService()
 runner = Runner(agent=agent, app_name="altered", session_service=session_service)
 _loop = asyncio.new_event_loop()
+
+
+def _get_conversation_context(user_id: str, session_id: str, limit: int = 6) -> str:
+    """
+    Retrieves recent conversation history to inject into the agent's context.
+    This ensures the agent maintains awareness of the ongoing conversation.
+    """
+    try:
+        from services.memory_bank import FirestoreMemoryBank
+        bank = FirestoreMemoryBank(user_id)
+        messages = bank.get_recent_messages(session_id, limit=limit)
+        
+        if not messages:
+            return ""
+        
+        # Format recent messages as context
+        context_parts = []
+        for msg in messages:
+            role = msg.get("role", "unknown")
+            text = msg.get("text", "")
+            if text and role in ["user", "assistant"]:
+                # Truncate long messages
+                if len(text) > 200:
+                    text = text[:200] + "..."
+                context_parts.append(f"{role.upper()}: {text}")
+        
+        if not context_parts:
+            return ""
+        
+        return "\n".join(context_parts[-4:])  # Last 4 messages max
+    except Exception as e:
+        print(f"[Context] Failed to load conversation history: {e}")
+        return ""
 
 
 async def _run(user_id: str, session_id: str, text: str, override_agent: Optional[LlmAgent] = None):
@@ -340,7 +401,17 @@ async def _run(user_id: str, session_id: str, text: str, override_agent: Optiona
             if local_agent is not None:
                 runtime_mode = "byok"
 
-        content = types.Content(role="user", parts=[types.Part(text=text)])
+        # Inject conversation context for continuity
+        # This ensures the agent knows what was said before in this session
+        conversation_context = _get_conversation_context(user_id, session_id)
+        if conversation_context:
+            # Prepend context to help agent maintain conversation flow
+            enhanced_text = f"[CONVERSATION CONTEXT - Recent messages in this session:]\n{conversation_context}\n\n[CURRENT USER MESSAGE:]\n{text}"
+            print(f"[Context] Injected {len(conversation_context)} chars of conversation history")
+        else:
+            enhanced_text = text
+
+        content = types.Content(role="user", parts=[types.Part(text=enhanced_text)])
         last_text = ""
         tool_results: Any = []
         async for event in active_runner.run_async(user_id=user_id, session_id=session_id, new_message=content):
@@ -444,10 +515,13 @@ async def adk_respond(uid: str, session_id: str, text: str, time_zone: Optional[
 
             if _re.search(p1, text_lower) or _re.search(p2, text_lower) or _re.search(p3, text_lower):
                 token = current_user_id.set(uid)
+                # Also set timezone context for calendar queries - CRITICAL for correct date
+                token_tz = current_user_timezone.set(time_zone)
                 try:
                     result = await google_calendar_mcp_search_events(text)
                 finally:
                     current_user_id.reset(token)
+                    current_user_timezone.reset(token_tz)
                 
                 if not result.get("ok"):
                     return result.get("error", "Sorry, I couldn't access your calendar right now."), [result]

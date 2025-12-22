@@ -474,3 +474,181 @@ async def notion_health():
         "api_base": NOTION_API_BASE,
         "api_version": NOTION_API_VERSION,
     }
+
+
+# ============================================================================
+# Token Sync Endpoint (for Agent Tools)
+# ============================================================================
+
+@router.post("/connect")
+async def connect_notion(
+    request: Request,
+    payload: Dict[str, Any] = Body(...),
+):
+    """
+    Save Notion token to Firestore for agent tool access.
+    
+    This endpoint is called by the Flutter app after the user connects
+    their Notion integration. It stores the token in Firestore so that
+    the AI agent can access Notion on behalf of the user.
+    
+    Body:
+        token (str): The Notion integration token (ntn_xxx)
+        
+    Headers:
+        Authorization: Bearer <firebase_id_token>
+        
+    Returns:
+        Success confirmation or error
+    """
+    from services.auth import get_user_id_from_request
+    from services.user_settings import UserSettings
+    
+    # Get user ID from Firebase auth
+    user_id = get_user_id_from_request(request)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"ok": False, "error": "authentication_required"}
+        )
+    
+    token = payload.get("token")
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"ok": False, "error": "token_required"}
+        )
+    
+    # Validate token format (should start with ntn_ for internal integrations
+    # or secret_ for OAuth tokens)
+    if not (token.startswith("ntn_") or token.startswith("secret_")):
+        logger.warning(f"Invalid Notion token format for user {user_id}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"ok": False, "error": "invalid_token_format", "message": "Token should start with 'ntn_' or 'secret_'"}
+        )
+    
+    # Optionally validate the token by making a test API call
+    try:
+        result = await _proxy_notion_request("GET", "/users/me", token)
+        if not result.get("ok"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"ok": False, "error": "invalid_token", "message": "Token validation failed"}
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Token validation error for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"ok": False, "error": "token_validation_failed", "message": str(e)}
+        )
+    
+    # Save token to Firestore
+    try:
+        settings = UserSettings(user_id)
+        save_result = settings.save_notion_token(token)
+        
+        if not save_result.get("ok"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"ok": False, "error": "save_failed", "message": save_result.get("error")}
+            )
+        
+        logger.info(f"Notion token saved for user {user_id}")
+        return {"ok": True, "message": "Notion connected successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to save Notion token for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"ok": False, "error": "save_failed", "message": str(e)}
+        )
+
+
+@router.post("/disconnect")
+async def disconnect_notion(request: Request):
+    """
+    Remove Notion token from Firestore.
+    
+    Called when user disconnects their Notion integration.
+    
+    Headers:
+        Authorization: Bearer <firebase_id_token>
+        
+    Returns:
+        Success confirmation or error
+    """
+    from services.auth import get_user_id_from_request
+    from services.user_settings import UserSettings
+    
+    user_id = get_user_id_from_request(request)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"ok": False, "error": "authentication_required"}
+        )
+    
+    try:
+        settings = UserSettings(user_id)
+        result = settings.delete_notion_token()
+        
+        if not result.get("ok"):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={"ok": False, "error": "delete_failed", "message": result.get("error")}
+            )
+        
+        logger.info(f"Notion token deleted for user {user_id}")
+        return {"ok": True, "message": "Notion disconnected successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete Notion token for user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"ok": False, "error": "delete_failed", "message": str(e)}
+        )
+
+
+@router.get("/status")
+async def notion_status(request: Request):
+    """
+    Check if user has Notion connected (token stored in Firestore).
+    
+    Headers:
+        Authorization: Bearer <firebase_id_token>
+        
+    Returns:
+        Connection status
+    """
+    from services.auth import get_user_id_from_request
+    from services.user_settings import UserSettings
+    
+    user_id = get_user_id_from_request(request)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"ok": False, "error": "authentication_required"}
+        )
+    
+    try:
+        settings = UserSettings(user_id)
+        is_connected = settings.is_notion_connected()
+        
+        return {
+            "ok": True,
+            "connected": is_connected,
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to check Notion status for user {user_id}: {e}")
+        return {
+            "ok": False,
+            "connected": False,
+            "error": str(e)
+        }
