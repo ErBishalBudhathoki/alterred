@@ -9,6 +9,8 @@ on:
 jobs:
   analyze_and_test:
     runs-on: ubuntu-latest
+    env:
+      FIREBASE_ADMIN_SA_JSON: ${{ secrets.FIREBASE_ADMIN_SA_JSON }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +39,7 @@ jobs:
           path: frontend/flutter_neuropilot/coverage/lcov.info
 
       - name: Write Firebase Admin SA (for server-side steps)
-        if: secrets.FIREBASE_ADMIN_SA_JSON != ''
+        if: env.FIREBASE_ADMIN_SA_JSON != ''
         run: |
           mkdir -p credentials
           echo "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
@@ -53,6 +55,8 @@ jobs:
 
   build_web:
     runs-on: ubuntu-latest
+    env:
+      FIREBASE_ADMIN_SA_JSON: ${{ secrets.FIREBASE_ADMIN_SA_JSON }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,7 +71,7 @@ jobs:
         run: flutter pub get
 
       - name: Write Firebase Admin SA (optional)
-        if: secrets.FIREBASE_ADMIN_SA_JSON != ''
+        if: env.FIREBASE_ADMIN_SA_JSON != ''
         run: |
           mkdir -p credentials
           echo "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
@@ -101,6 +105,8 @@ jobs:
 
   playwright_e2e:
     runs-on: ubuntu-latest
+    env:
+      FIREBASE_ADMIN_SA_JSON: ${{ secrets.FIREBASE_ADMIN_SA_JSON }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -120,7 +126,7 @@ jobs:
         run: flutter pub get
 
       - name: Write Firebase Admin SA (optional)
-        if: secrets.FIREBASE_ADMIN_SA_JSON != ''
+        if: env.FIREBASE_ADMIN_SA_JSON != ''
         run: |
           mkdir -p credentials
           echo "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
@@ -178,7 +184,7 @@ jobs:
           echo "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_DEV }}" > frontend/flutter_neuropilot/android/app/src/development/google-services.json
 
       - name: Write google-services.json for prod flavor
-        if: secrets.ANDROID_GOOGLE_SERVICES_JSON_PROD != ''
+        if: env.ANDROID_GOOGLE_SERVICES_JSON_PROD != ''
         run: |
           mkdir -p frontend/flutter_neuropilot/android/app/src/production
           echo "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_PROD }}" > frontend/flutter_neuropilot/android/app/src/production/google-services.json
