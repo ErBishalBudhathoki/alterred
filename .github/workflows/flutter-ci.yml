@@ -164,6 +164,9 @@ jobs:
 
   build_android:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_GOOGLE_SERVICES_JSON_DEV: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_DEV }}
+      ANDROID_GOOGLE_SERVICES_JSON_PROD: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_PROD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -178,7 +181,7 @@ jobs:
         run: flutter pub get
 
       - name: Write google-services.json for dev flavor
-        if: secrets.ANDROID_GOOGLE_SERVICES_JSON_DEV != ''
+        if: env.ANDROID_GOOGLE_SERVICES_JSON_DEV != ''
         run: |
           mkdir -p frontend/flutter_neuropilot/android/app/src/development
           echo "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_DEV }}" > frontend/flutter_neuropilot/android/app/src/development/google-services.json
