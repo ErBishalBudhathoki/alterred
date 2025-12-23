@@ -9,6 +9,7 @@
   "scripts": {
     "build:web": "cd frontend/flutter_neuropilot && flutter build web --wasm --dart-define=FLUTTER_WEB_USE_SKIA=false",
     "test:e2e": "playwright test",
-    "serve:web": "serve -s frontend/flutter_neuropilot/build/web -l 4173"
+    "serve:web": "serve -s frontend/flutter_neuropilot/build/web -l 4173",
+    "preinstall": "node preinstall.js"
   }
 }

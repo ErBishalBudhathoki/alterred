@@ -47,11 +47,14 @@ class NpRadio<T> extends StatelessWidget {
     // If used outside a NpRadioGroup, this will throw or be disabled.
     // Ideally we should assert group != null, but for now we handle gracefully if possible
     // or let standard Radio fail if params are null (Radio requires groupValue/onChanged).
-    
+
     final cs = Theme.of(context).colorScheme;
+    // ignore: deprecated_member_use
     return Radio<T>(
       value: value,
+      // ignore: deprecated_member_use
       groupValue: group?.groupValue,
+      // ignore: deprecated_member_use
       onChanged: group?.onChanged,
       enabled: enabled,
       activeColor: cs.primary,
