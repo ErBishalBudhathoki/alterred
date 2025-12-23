@@ -61,27 +61,27 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
 
   Future<void> _copyLink() async {
     if (_url == null) return;
-    
+
     await Clipboard.setData(ClipboardData(text: _url!));
     setState(() => _linkCopied = true);
-    
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Row(
             children: [
-              const Icon(Icons.check_circle, color: Colors.white, size: 20),
-              const SizedBox(width: 8),
-              const Text('Link copied to clipboard'),
+              Icon(Icons.check_circle, color: Colors.white, size: 20),
+              SizedBox(width: 8),
+              Text('Link copied to clipboard'),
             ],
           ),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
+          duration: Duration(seconds: 2),
         ),
       );
     }
-    
+
     // Reset after 2 seconds
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _linkCopied = false);
@@ -90,7 +90,7 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
 
   Future<void> _openInNotion() async {
     if (_url == null) return;
-    
+
     final uri = Uri.parse(_url!);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -108,14 +108,14 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
 
   Future<void> _appendContent() async {
     if (_pageId == null) return;
-    
+
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.add_circle_outline, 
+            Icon(Icons.add_circle_outline,
                 color: Theme.of(ctx).colorScheme.primary),
             const SizedBox(width: 8),
             const Text('Add to Page'),
@@ -149,7 +149,7 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
         ],
       ),
     );
-    
+
     if (result != null && result.isNotEmpty && mounted) {
       setState(() => _isLoading = true);
       try {
@@ -161,13 +161,16 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
               'type': 'paragraph',
               'paragraph': {
                 'rich_text': [
-                  {'type': 'text', 'text': {'content': result}}
+                  {
+                    'type': 'text',
+                    'text': {'content': result}
+                  }
                 ]
               }
             }
           ]
         });
-        
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -195,7 +198,7 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    
+
     // Format created time
     String? formattedTime;
     if (_createdTime != null) {
@@ -266,7 +269,7 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
                         ),
                       ],
                     ),
-                    child: Center(
+                    child: const Center(
                       child: Text(
                         'N',
                         style: TextStyle(
@@ -284,7 +287,7 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
                       children: [
                         Row(
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.check_circle,
                               size: 16,
                               color: Colors.green,
@@ -324,17 +327,17 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
                 ],
               ),
             ),
-            
+
             // Content preview (if available and expanded)
             AnimatedCrossFade(
               firstChild: const SizedBox.shrink(),
               secondChild: _buildExpandedContent(cs, tt, formattedTime),
-              crossFadeState: _isExpanded 
-                  ? CrossFadeState.showSecond 
+              crossFadeState: _isExpanded
+                  ? CrossFadeState.showSecond
                   : CrossFadeState.showFirst,
               duration: const Duration(milliseconds: 200),
             ),
-            
+
             // Action buttons
             Padding(
               padding: const EdgeInsets.all(12),
@@ -381,7 +384,8 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
     );
   }
 
-  Widget _buildExpandedContent(ColorScheme cs, TextTheme tt, String? formattedTime) {
+  Widget _buildExpandedContent(
+      ColorScheme cs, TextTheme tt, String? formattedTime) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
@@ -427,7 +431,7 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
             ),
             const SizedBox(height: 8),
           ],
-          
+
           // Created time
           if (formattedTime != null) ...[
             Row(
@@ -442,7 +446,7 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
             ),
             const SizedBox(height: 8),
           ],
-          
+
           // Content preview
           if (_content != null && _content!.isNotEmpty) ...[
             const SizedBox(height: 4),
@@ -457,7 +461,7 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.article_outlined, 
+                      Icon(Icons.article_outlined,
                           size: 14, color: cs.onSurfaceVariant),
                       const SizedBox(width: 6),
                       Text(
@@ -480,13 +484,15 @@ class _NotionPageWidgetState extends ConsumerState<NotionPageWidget>
               ),
             ),
           ],
-          
+
           // Page ID (for debugging/reference)
           if (_pageId != null) ...[
             const SizedBox(height: 8),
             Row(
               children: [
-                Icon(Icons.tag, size: 14, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                Icon(Icons.tag,
+                    size: 14,
+                    color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -524,7 +530,7 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    
+
     if (isPrimary) {
       return FilledButton.icon(
         icon: Icon(icon, size: 18),
@@ -538,10 +544,10 @@ class _ActionButton extends StatelessWidget {
         ),
       );
     }
-    
+
     return OutlinedButton.icon(
       icon: Icon(
-        icon, 
+        icon,
         size: 18,
         color: isSuccess ? Colors.green : null,
       ),
@@ -556,9 +562,7 @@ class _ActionButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
         ),
         side: BorderSide(
-          color: isSuccess 
-              ? Colors.green 
-              : cs.outline.withValues(alpha: 0.5),
+          color: isSuccess ? Colors.green : cs.outline.withValues(alpha: 0.5),
         ),
       ),
     );
@@ -587,7 +591,7 @@ class NotionSearchResultsWidget extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(Icons.search_off, 
+            Icon(Icons.search_off,
                 color: Theme.of(context).colorScheme.onSurfaceVariant),
             const SizedBox(width: 12),
             const Text('No pages found'),
@@ -603,26 +607,25 @@ class NotionSearchResultsWidget extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 8),
           child: Row(
             children: [
-              Icon(Icons.search, 
-                  size: 18, 
-                  color: Theme.of(context).colorScheme.primary),
+              Icon(Icons.search,
+                  size: 18, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 8),
               Text(
                 '${pages.length} page${pages.length == 1 ? '' : 's'} found',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                ),
+                      color: Theme.of(context).colorScheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ],
           ),
         ),
         ...pages.map((page) => _NotionSearchResultCard(
-          page: page,
-          onTap: onPageSelected != null 
-              ? () => onPageSelected!(page['id']) 
-              : null,
-        )),
+              page: page,
+              onTap: onPageSelected != null
+                  ? () => onPageSelected!(page['id'])
+                  : null,
+            )),
       ],
     );
   }
@@ -641,11 +644,11 @@ class _NotionSearchResultCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
-    
+
     final title = page['title'] ?? 'Untitled';
     final url = page['url'];
     final lastEdited = page['last_edited_time'];
-    
+
     String? formattedTime;
     if (lastEdited != null) {
       try {
@@ -665,14 +668,15 @@ class _NotionSearchResultCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
-          onTap: onTap ?? () async {
-            if (url != null) {
-              final uri = Uri.parse(url);
-              if (await canLaunchUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-              }
-            }
-          },
+          onTap: onTap ??
+              () async {
+                if (url != null) {
+                  final uri = Uri.parse(url);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                }
+              },
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Row(
