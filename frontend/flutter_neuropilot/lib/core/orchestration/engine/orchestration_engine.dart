@@ -15,7 +15,7 @@ class OrchestrationEngine {
   final SafetyMonitor _safetyMonitor = SafetyMonitor();
   final WorkflowExecutor _workflowExecutor = WorkflowExecutor();
 
-  final StreamController<OrchestrationEvent> _eventController =
+  StreamController<OrchestrationEvent> _eventController =
       StreamController<OrchestrationEvent>.broadcast();
 
   final Map<String, Workflow> _workflows = {};
@@ -37,6 +37,10 @@ class OrchestrationEngine {
   /// Initialize the orchestration engine
   Future<void> initialize() async {
     if (_isInitialized) return;
+
+    if (_eventController.isClosed) {
+      _eventController = StreamController<OrchestrationEvent>.broadcast();
+    }
 
     try {
       // Initialize components
@@ -593,7 +597,9 @@ class OrchestrationEngine {
     await _safetyMonitor.dispose();
     await _workflowExecutor.dispose();
 
-    await _eventController.close();
+    if (!_eventController.isClosed) {
+      await _eventController.close();
+    }
 
     _isInitialized = false;
   }

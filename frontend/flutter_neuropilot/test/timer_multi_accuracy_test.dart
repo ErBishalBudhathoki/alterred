@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class FakeApiClient extends ApiClient {
   FakeApiClient() : super(baseUrl: 'http://example.com');
+  
+  static int _idCounter = 0;
 
   @override
   Future<Map<String, dynamic>> health() async {
@@ -37,14 +39,16 @@ class FakeApiClient extends ApiClient {
     } else {
       seconds = 60;
     }
-    final id = 't_${DateTime.now().microsecondsSinceEpoch}';
+    _idCounter++;
+    final id = 't_${DateTime.now().microsecondsSinceEpoch}_$_idCounter';
     final target =
         DateTime.now().add(Duration(seconds: seconds)).toIso8601String();
     return {
       'ok': true,
       'target': target,
       'warnings': [15, 10, 5, 2],
-      'timer_id': id
+      'timer_id': id,
+      'duration_seconds': seconds // ChatScreen expects this for setting correct total
     };
   }
 }

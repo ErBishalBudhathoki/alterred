@@ -1,10 +1,34 @@
 import 'package:flutter/material.dart';
 
+/// A radio group inherited widget to pass down group value and change handler.
+class NpRadioGroup<T> extends InheritedWidget {
+  final T? groupValue;
+  final ValueChanged<T?> onChanged;
+
+  const NpRadioGroup({
+    super.key,
+    required this.groupValue,
+    required this.onChanged,
+    required super.child,
+  });
+
+  static NpRadioGroup<T>? of<T>(BuildContext context) {
+    return context.dependOnInheritedWidgetOfExactType<NpRadioGroup<T>>();
+  }
+
+  @override
+  bool updateShouldNotify(NpRadioGroup<T> oldWidget) {
+    return groupValue != oldWidget.groupValue ||
+        onChanged != oldWidget.onChanged;
+  }
+}
+
 /// A single radio button component.
 ///
 /// Implementation Details:
 /// - Wraps the Material [Radio] widget.
 /// - Uses [activeColor] from the theme.
+/// - Consumes [NpRadioGroup] for group value and callbacks.
 ///
 /// Design Decisions:
 /// - Simplifies the Radio API for common use cases.
@@ -19,33 +43,18 @@ class NpRadio<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final group = NpRadioGroup.of<T>(context);
+    // If used outside a NpRadioGroup, this will throw or be disabled.
+    // Ideally we should assert group != null, but for now we handle gracefully if possible
+    // or let standard Radio fail if params are null (Radio requires groupValue/onChanged).
+    
     final cs = Theme.of(context).colorScheme;
     return Radio<T>(
       value: value,
+      groupValue: group?.groupValue,
+      onChanged: group?.onChanged,
       enabled: enabled,
       activeColor: cs.primary,
     );
-  }
-}
-
-class NpRadioGroup<T> extends StatelessWidget {
-  final T? groupValue;
-  final ValueChanged<T?> onChanged;
-  final Widget child;
-  const NpRadioGroup(
-      {super.key,
-      required this.groupValue,
-      required this.onChanged,
-      required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    // Note: This likely intends to wrap child in a Theme or provider,
-    // as RadioGroup doesn't exist in Material. Leaving as is for now but documenting intent.
-    // In a real app, this might use a custom inherited widget or just be a layout wrapper.
-    // Assuming 'RadioGroup' is a typo or missing import, but documenting existing code.
-    return Container(
-        child:
-            child); // Placeholder fix to allow analysis to pass if RadioGroup is missing
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/agent_model.dart';
 import '../models/workflow_model.dart';
@@ -75,19 +76,18 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
     try {
       // Initialize the orchestration engine
       await _engine.initialize();
-      
+
       // Register default workflows
       await _registerDefaultWorkflows();
-      
+
       // Set up event listeners
       _setupEventListeners();
-      
+
       // Start the engine
       await _engine.start();
-      
+
       // Update state
       await _updateState();
-      
     } catch (error) {
       state = state.copyWith(error: error.toString());
     }
@@ -97,64 +97,69 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
   Future<void> _registerDefaultWorkflows() async {
     // Register morning routine workflow
     await _engine.registerWorkflow(MorningRoutineWorkflow.createWorkflow());
-    
+
     // Register decision paralysis workflow
     await _engine.registerWorkflow(DecisionParalysisWorkflow.createWorkflow());
-    
+
     // Register hyperfocus protection workflow
-    await _engine.registerWorkflow(HyperfocusProtectionWorkflow.createWorkflow());
-    
+    await _engine
+        .registerWorkflow(HyperfocusProtectionWorkflow.createWorkflow());
+
     // Register workflow variations
     final morningVariations = MorningRoutineWorkflow.getWorkflowVariations();
     for (final workflow in morningVariations.values) {
       await _engine.registerWorkflow(workflow);
     }
-    
-    final paralysisEscalations = DecisionParalysisWorkflow.getEscalationWorkflows();
+
+    final paralysisEscalations =
+        DecisionParalysisWorkflow.getEscalationWorkflows();
     for (final workflow in paralysisEscalations.values) {
       await _engine.registerWorkflow(workflow);
     }
-    
-    final hyperfocusEscalations = HyperfocusProtectionWorkflow.getEscalationWorkflows();
+
+    final hyperfocusEscalations =
+        HyperfocusProtectionWorkflow.getEscalationWorkflows();
     for (final workflow in hyperfocusEscalations.values) {
       await _engine.registerWorkflow(workflow);
     }
   }
 
+  final List<StreamSubscription> _subscriptions = [];
+
   /// Set up event listeners
   void _setupEventListeners() {
     // Listen to orchestration events
-    _engine.events.listen((event) {
-      _handleOrchestrationEvent(event);
-    });
-    
+    _subscriptions.add(_engine.events.listen((event) {
+      if (mounted) _handleOrchestrationEvent(event);
+    }));
+
     // Listen to agent registry events
-    _agentRegistry.events.listen((event) {
-      _handleAgentRegistryEvent(event);
-    });
-    
+    _subscriptions.add(_agentRegistry.events.listen((event) {
+      if (mounted) _handleAgentRegistryEvent(event);
+    }));
+
     // Listen to safety monitor events
-    _safetyMonitor.events.listen((event) {
-      _handleSafetyEvent(event);
-    });
-    
+    _subscriptions.add(_safetyMonitor.events.listen((event) {
+      if (mounted) _handleSafetyEvent(event);
+    }));
+
     // Listen to workflow executor events
-    _workflowExecutor.events.listen((event) {
-      _handleWorkflowEvent(event);
-    });
+    _subscriptions.add(_workflowExecutor.events.listen((event) {
+      if (mounted) _handleWorkflowEvent(event);
+    }));
   }
 
   /// Handle orchestration events
   void _handleOrchestrationEvent(OrchestrationEvent event) {
     final updatedEvents = [...state.recentEvents, event];
-    
+
     // Keep only last 100 events
     if (updatedEvents.length > 100) {
       updatedEvents.removeRange(0, updatedEvents.length - 100);
     }
-    
+
     state = state.copyWith(recentEvents: updatedEvents);
-    
+
     // Handle specific event types
     switch (event.type) {
       case OrchestrationEventType.initialized:
@@ -169,7 +174,7 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
       default:
         break;
     }
-    
+
     // Update statistics
     _updateStatistics();
   }
@@ -193,7 +198,7 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
       // Handle critical safety events immediately
       _handleCriticalSafetyEvent(event);
     }
-    
+
     _updateSystemHealth();
   }
 
@@ -234,7 +239,7 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
     for (final agent in _agentRegistry.getAllAgents()) {
       agents[agent.metadata.id] = agent;
     }
-    
+
     state = state.copyWith(agents: agents);
   }
 
@@ -244,7 +249,7 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
     for (final workflow in _engine.getAllWorkflows()) {
       workflows[workflow.id] = workflow;
     }
-    
+
     state = state.copyWith(workflows: workflows);
   }
 
@@ -267,7 +272,8 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
   }
 
   /// Execute a workflow
-  Future<WorkflowExecution?> executeWorkflow(String workflowId, {Map<String, dynamic>? parameters}) async {
+  Future<WorkflowExecution?> executeWorkflow(String workflowId,
+      {Map<String, dynamic>? parameters}) async {
     try {
       final context = ExecutionContext(
         id: 'manual_${DateTime.now().millisecondsSinceEpoch}',
@@ -275,10 +281,10 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
         timestamp: DateTime.now(),
         parameters: parameters ?? {},
       );
-      
+
       final execution = await _engine.executeWorkflow(workflowId, context);
       await _updateActiveExecutions();
-      
+
       return execution;
     } catch (error) {
       state = state.copyWith(error: error.toString());
@@ -287,7 +293,8 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
   }
 
   /// Execute an agent
-  Future<AgentResult?> executeAgent(String agentId, {Map<String, dynamic>? parameters}) async {
+  Future<AgentResult?> executeAgent(String agentId,
+      {Map<String, dynamic>? parameters}) async {
     try {
       final context = ExecutionContext(
         id: 'manual_agent_${DateTime.now().millisecondsSinceEpoch}',
@@ -295,7 +302,7 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
         timestamp: DateTime.now(),
         parameters: parameters ?? {},
       );
-      
+
       final result = await _engine.executeAgent(agentId, context);
       return result;
     } catch (error) {
@@ -305,7 +312,8 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
   }
 
   /// Trigger workflows based on conditions
-  Future<List<WorkflowExecution>> triggerWorkflows({Map<String, dynamic>? userState}) async {
+  Future<List<WorkflowExecution>> triggerWorkflows(
+      {Map<String, dynamic>? userState}) async {
     try {
       final context = ExecutionContext(
         id: 'trigger_${DateTime.now().millisecondsSinceEpoch}',
@@ -313,10 +321,10 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
         timestamp: DateTime.now(),
         userState: userState ?? {},
       );
-      
+
       final executions = await _engine.triggerWorkflows(context);
       await _updateActiveExecutions();
-      
+
       return executions;
     } catch (error) {
       state = state.copyWith(error: error.toString());
@@ -366,17 +374,23 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
 
   /// Get agents by type
   List<AgentBase> getAgentsByType(AgentType type) {
-    return state.agents.values.where((agent) => agent.metadata.type == type).toList();
+    return state.agents.values
+        .where((agent) => agent.metadata.type == type)
+        .toList();
   }
 
   /// Get workflows by trigger type
   List<Workflow> getWorkflowsByTriggerType(TriggerType triggerType) {
-    return state.workflows.values.where((workflow) => workflow.trigger.type == triggerType).toList();
+    return state.workflows.values
+        .where((workflow) => workflow.trigger.type == triggerType)
+        .toList();
   }
 
   /// Get active executions for workflow
   List<WorkflowExecution> getActiveExecutionsForWorkflow(String workflowId) {
-    return state.activeExecutions.where((execution) => execution.workflowId == workflowId).toList();
+    return state.activeExecutions
+        .where((execution) => execution.workflowId == workflowId)
+        .toList();
   }
 
   /// Clear error
@@ -392,13 +406,17 @@ class OrchestrationNotifier extends StateNotifier<OrchestrationState> {
   /// Dispose resources
   @override
   void dispose() {
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
     _engine.dispose();
     super.dispose();
   }
 }
 
 /// Provider for orchestration state
-final orchestrationProvider = StateNotifierProvider<OrchestrationNotifier, OrchestrationState>((ref) {
+final orchestrationProvider =
+    StateNotifierProvider<OrchestrationNotifier, OrchestrationState>((ref) {
   return OrchestrationNotifier();
 });
 
@@ -415,15 +433,21 @@ final workflowProvider = Provider.family<Workflow?, String>((ref, workflowId) {
 });
 
 /// Provider for agents by type
-final agentsByTypeProvider = Provider.family<List<AgentBase>, AgentType>((ref, type) {
+final agentsByTypeProvider =
+    Provider.family<List<AgentBase>, AgentType>((ref, type) {
   final orchestrationState = ref.watch(orchestrationProvider);
-  return orchestrationState.agents.values.where((agent) => agent.metadata.type == type).toList();
+  return orchestrationState.agents.values
+      .where((agent) => agent.metadata.type == type)
+      .toList();
 });
 
 /// Provider for workflows by trigger type
-final workflowsByTriggerTypeProvider = Provider.family<List<Workflow>, TriggerType>((ref, triggerType) {
+final workflowsByTriggerTypeProvider =
+    Provider.family<List<Workflow>, TriggerType>((ref, triggerType) {
   final orchestrationState = ref.watch(orchestrationProvider);
-  return orchestrationState.workflows.values.where((workflow) => workflow.trigger.type == triggerType).toList();
+  return orchestrationState.workflows.values
+      .where((workflow) => workflow.trigger.type == triggerType)
+      .toList();
 });
 
 /// Provider for active executions
@@ -463,17 +487,20 @@ class OrchestrationActions {
   OrchestrationActions(this._notifier);
 
   /// Execute workflow
-  Future<WorkflowExecution?> executeWorkflow(String workflowId, {Map<String, dynamic>? parameters}) {
+  Future<WorkflowExecution?> executeWorkflow(String workflowId,
+      {Map<String, dynamic>? parameters}) {
     return _notifier.executeWorkflow(workflowId, parameters: parameters);
   }
 
   /// Execute agent
-  Future<AgentResult?> executeAgent(String agentId, {Map<String, dynamic>? parameters}) {
+  Future<AgentResult?> executeAgent(String agentId,
+      {Map<String, dynamic>? parameters}) {
     return _notifier.executeAgent(agentId, parameters: parameters);
   }
 
   /// Trigger workflows
-  Future<List<WorkflowExecution>> triggerWorkflows({Map<String, dynamic>? userState}) {
+  Future<List<WorkflowExecution>> triggerWorkflows(
+      {Map<String, dynamic>? userState}) {
     return _notifier.triggerWorkflows(userState: userState);
   }
 
@@ -520,9 +547,11 @@ final hyperfocusProtectionWorkflowProvider = Provider<Workflow?>((ref) {
 final morningRoutineExecutionProvider = Provider<WorkflowExecution?>((ref) {
   final executions = ref.watch(activeExecutionsProvider);
   return executions
-      .where((e) => e.workflowId == MorningRoutineWorkflow.workflowId)
-      .isNotEmpty
-      ? executions.where((e) => e.workflowId == MorningRoutineWorkflow.workflowId).first
+          .where((e) => e.workflowId == MorningRoutineWorkflow.workflowId)
+          .isNotEmpty
+      ? executions
+          .where((e) => e.workflowId == MorningRoutineWorkflow.workflowId)
+          .first
       : null;
 });
 
@@ -530,19 +559,24 @@ final morningRoutineExecutionProvider = Provider<WorkflowExecution?>((ref) {
 final decisionParalysisExecutionProvider = Provider<WorkflowExecution?>((ref) {
   final executions = ref.watch(activeExecutionsProvider);
   return executions
-      .where((e) => e.workflowId == DecisionParalysisWorkflow.workflowId)
-      .isNotEmpty
-      ? executions.where((e) => e.workflowId == DecisionParalysisWorkflow.workflowId).first
+          .where((e) => e.workflowId == DecisionParalysisWorkflow.workflowId)
+          .isNotEmpty
+      ? executions
+          .where((e) => e.workflowId == DecisionParalysisWorkflow.workflowId)
+          .first
       : null;
 });
 
 /// Provider for hyperfocus protection execution status
-final hyperfocusProtectionExecutionProvider = Provider<WorkflowExecution?>((ref) {
+final hyperfocusProtectionExecutionProvider =
+    Provider<WorkflowExecution?>((ref) {
   final executions = ref.watch(activeExecutionsProvider);
   return executions
-      .where((e) => e.workflowId == HyperfocusProtectionWorkflow.workflowId)
-      .isNotEmpty
-      ? executions.where((e) => e.workflowId == HyperfocusProtectionWorkflow.workflowId).first
+          .where((e) => e.workflowId == HyperfocusProtectionWorkflow.workflowId)
+          .isNotEmpty
+      ? executions
+          .where((e) => e.workflowId == HyperfocusProtectionWorkflow.workflowId)
+          .first
       : null;
 });
 
@@ -556,7 +590,7 @@ final orchestrationHealthProvider = Provider<String>((ref) {
 final agentHealthSummaryProvider = Provider<Map<String, dynamic>>((ref) {
   final health = ref.watch(systemHealthProvider);
   final agents = health['agents'] as Map<String, dynamic>? ?? {};
-  
+
   return {
     'healthy_count': agents['healthy'] ?? 0,
     'total_count': agents['total'] ?? 0,

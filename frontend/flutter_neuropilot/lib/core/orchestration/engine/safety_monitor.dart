@@ -10,7 +10,7 @@ class SafetyMonitor {
   SafetyMonitor._internal();
 
   final AgentRegistry _agentRegistry = AgentRegistry();
-  final StreamController<SafetyEvent> _eventController =
+  StreamController<SafetyEvent> _eventController =
       StreamController<SafetyEvent>.broadcast();
 
   Timer? _monitoringTimer;
@@ -29,6 +29,9 @@ class SafetyMonitor {
 
   /// Initialize safety monitor
   Future<void> initialize() async {
+    if (_eventController.isClosed) {
+      _eventController = StreamController<SafetyEvent>.broadcast();
+    }
     _registerDefaultSafetyRules();
     await startMonitoring();
 
@@ -136,6 +139,9 @@ class SafetyMonitor {
       timestamp: DateTime.now(),
     ));
   }
+
+  /// Dispose safety monitor
+  // Duplicate dispose method removed
 
   /// Perform safety check
   Future<void> _performSafetyCheck() async {

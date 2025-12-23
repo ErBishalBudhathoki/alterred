@@ -15,7 +15,7 @@ class AgentRegistry {
 
   final Map<String, AgentBase> _agents = {};
   final Map<String, AgentFactory> _factories = {};
-  final StreamController<AgentRegistryEvent> _eventController = 
+  StreamController<AgentRegistryEvent> _eventController =
       StreamController<AgentRegistryEvent>.broadcast();
 
   /// Stream of registry events
@@ -23,12 +23,16 @@ class AgentRegistry {
 
   /// Initialize the registry with default agents
   Future<void> initialize() async {
+    if (_eventController.isClosed) {
+      _eventController = StreamController<AgentRegistryEvent>.broadcast();
+    }
+
     // Register agent factories
     _registerDefaultFactories();
-    
+
     // Create and register default agents
     await _createDefaultAgents();
-    
+
     _eventController.add(AgentRegistryEvent(
       type: AgentRegistryEventType.initialized,
       data: {'total_agents': _agents.length},
@@ -40,7 +44,8 @@ class AgentRegistry {
   void _registerDefaultFactories() {
     _factories[EnergyAssessmentAgent.agentId] = () => EnergyAssessmentAgent();
     _factories[DecisionHelperAgent.agentId] = () => DecisionHelperAgent();
-    _factories[HyperfocusDetectionAgent.agentId] = () => HyperfocusDetectionAgent();
+    _factories[HyperfocusDetectionAgent.agentId] =
+        () => HyperfocusDetectionAgent();
     _factories[TimeEstimationAgent.agentId] = () => TimeEstimationAgent();
     _factories[BreakEnforcementAgent.agentId] = () => BreakEnforcementAgent();
   }
@@ -56,15 +61,16 @@ class AgentRegistry {
   /// Register an agent
   Future<void> registerAgent(AgentBase agent) async {
     if (_agents.containsKey(agent.metadata.id)) {
-      throw AgentRegistryException('Agent ${agent.metadata.id} is already registered');
+      throw AgentRegistryException(
+          'Agent ${agent.metadata.id} is already registered');
     }
 
     // Initialize the agent
     await agent.initialize();
-    
+
     // Register the agent
     _agents[agent.metadata.id] = agent;
-    
+
     // Listen to agent status changes
     agent.statusChanges.listen((status) {
       _eventController.add(AgentRegistryEvent(
@@ -109,7 +115,7 @@ class AgentRegistry {
 
     // Dispose the agent
     await agent.dispose();
-    
+
     // Remove from registry
     _agents.remove(agentId);
 
@@ -132,7 +138,9 @@ class AgentRegistry {
 
   /// Get agents by type
   List<AgentBase> getAgentsByType(AgentType type) {
-    return _agents.values.where((agent) => agent.metadata.type == type).toList();
+    return _agents.values
+        .where((agent) => agent.metadata.type == type)
+        .toList();
   }
 
   /// Get agents by capability
@@ -162,17 +170,19 @@ class AgentRegistry {
 
   /// Get agents that can handle specific input type
   List<AgentBase> getAgentsForInputType(String inputType) {
-    return _agents.values.where((agent) => 
-      agent.metadata.capabilities.inputTypes.contains(inputType) ||
-      agent.metadata.capabilities.inputTypes.isEmpty
-    ).toList();
+    return _agents.values
+        .where((agent) =>
+            agent.metadata.capabilities.inputTypes.contains(inputType) ||
+            agent.metadata.capabilities.inputTypes.isEmpty)
+        .toList();
   }
 
   /// Get agents that produce specific output type
   List<AgentBase> getAgentsForOutputType(String outputType) {
-    return _agents.values.where((agent) => 
-      agent.metadata.capabilities.outputTypes.contains(outputType)
-    ).toList();
+    return _agents.values
+        .where((agent) =>
+            agent.metadata.capabilities.outputTypes.contains(outputType))
+        .toList();
   }
 
   /// Check if agent exists
@@ -209,7 +219,8 @@ class AgentRegistry {
   }
 
   /// Execute agent
-  Future<AgentResult> executeAgent(String agentId, ExecutionContext context) async {
+  Future<AgentResult> executeAgent(
+      String agentId, ExecutionContext context) async {
     final agent = getAgent(agentId);
     if (agent == null) {
       throw AgentRegistryException('Agent $agentId not found');
@@ -220,16 +231,17 @@ class AgentRegistry {
 
   /// Execute multiple agents in parallel
   Future<List<AgentResult>> executeAgentsParallel(
-    List<String> agentIds, 
-    ExecutionContext context
-  ) async {
-    final agents = agentIds.map((id) => getAgent(id)).where((agent) => agent != null).cast<AgentBase>();
-    
+      List<String> agentIds, ExecutionContext context) async {
+    final agents = agentIds
+        .map((id) => getAgent(id))
+        .where((agent) => agent != null)
+        .cast<AgentBase>();
+
     // Filter agents that can execute in parallel
-    final parallelAgents = agents.where((agent) => 
-      agent.metadata.capabilities.canExecuteParallel
-    ).toList();
-    
+    final parallelAgents = agents
+        .where((agent) => agent.metadata.capabilities.canExecuteParallel)
+        .toList();
+
     if (parallelAgents.length != agentIds.length) {
       throw AgentRegistryException('Not all agents support parallel execution');
     }
@@ -241,26 +253,24 @@ class AgentRegistry {
 
   /// Execute agents in sequence
   Future<List<AgentResult>> executeAgentsSequential(
-    List<String> agentIds, 
-    ExecutionContext context
-  ) async {
+      List<String> agentIds, ExecutionContext context) async {
     final results = <AgentResult>[];
-    
+
     for (final agentId in agentIds) {
       final agent = getAgent(agentId);
       if (agent == null) {
         throw AgentRegistryException('Agent $agentId not found');
       }
-      
+
       final result = await agent.execute(context);
       results.add(result);
-      
+
       // Stop execution if an agent fails (unless configured otherwise)
       if (!result.success) {
         break;
       }
     }
-    
+
     return results;
   }
 
@@ -277,7 +287,7 @@ class AgentRegistry {
   /// Get all agents health status
   Future<Map<String, dynamic>> getAllAgentsHealth() async {
     final healthMap = <String, dynamic>{};
-    
+
     for (final agent in _agents.values) {
       try {
         healthMap[agent.metadata.id] = await agent.getHealthStatus();
@@ -288,7 +298,7 @@ class AgentRegistry {
         };
       }
     }
-    
+
     return healthMap;
   }
 
@@ -296,15 +306,15 @@ class AgentRegistry {
   Map<String, dynamic> getRegistryStats() {
     final statusCounts = <String, int>{};
     final typeCounts = <String, int>{};
-    
+
     for (final agent in _agents.values) {
       final status = agent.status.name;
       final type = agent.metadata.type.name;
-      
+
       statusCounts[status] = (statusCounts[status] ?? 0) + 1;
       typeCounts[type] = (typeCounts[type] ?? 0) + 1;
     }
-    
+
     return {
       'total_agents': _agents.length,
       'status_breakdown': statusCounts,
@@ -316,7 +326,8 @@ class AgentRegistry {
   }
 
   /// Update agent configuration
-  Future<void> updateAgentConfig(String agentId, Map<String, dynamic> config) async {
+  Future<void> updateAgentConfig(
+      String agentId, Map<String, dynamic> config) async {
     final agent = getAgent(agentId);
     if (agent == null) {
       throw AgentRegistryException('Agent $agentId not found');
@@ -347,44 +358,46 @@ class AgentRegistry {
   /// Get all agents metrics
   Map<String, dynamic> getAllAgentsMetrics() {
     final metricsMap = <String, dynamic>{};
-    
+
     for (final agent in _agents.values) {
       metricsMap[agent.metadata.id] = agent.getMetrics();
     }
-    
+
     return metricsMap;
   }
 
   /// Find agents by dependency
   List<AgentBase> findAgentsByDependency(String dependencyAgentId) {
-    return _agents.values.where((agent) => 
-      agent.metadata.dependencies.contains(dependencyAgentId)
-    ).toList();
+    return _agents.values
+        .where(
+            (agent) => agent.metadata.dependencies.contains(dependencyAgentId))
+        .toList();
   }
 
   /// Get agent dependency graph
   Map<String, List<String>> getAgentDependencyGraph() {
     final graph = <String, List<String>>{};
-    
+
     for (final agent in _agents.values) {
       graph[agent.metadata.id] = agent.metadata.dependencies;
     }
-    
+
     return graph;
   }
 
   /// Validate agent dependencies
   List<String> validateDependencies() {
     final errors = <String>[];
-    
+
     for (final agent in _agents.values) {
       for (final dependency in agent.metadata.dependencies) {
         if (!hasAgent(dependency)) {
-          errors.add('Agent ${agent.metadata.id} depends on missing agent $dependency');
+          errors.add(
+              'Agent ${agent.metadata.id} depends on missing agent $dependency');
         }
       }
     }
-    
+
     return errors;
   }
 
@@ -392,28 +405,28 @@ class AgentRegistry {
   List<AgentBase> getAgentsInDependencyOrder() {
     final visited = <String>{};
     final result = <AgentBase>[];
-    
+
     void visit(String agentId) {
       if (visited.contains(agentId)) return;
-      
+
       final agent = getAgent(agentId);
       if (agent == null) return;
-      
+
       visited.add(agentId);
-      
+
       // Visit dependencies first
       for (final dependency in agent.metadata.dependencies) {
         visit(dependency);
       }
-      
+
       result.add(agent);
     }
-    
+
     // Visit all agents
     for (final agentId in _agents.keys) {
       visit(agentId);
     }
-    
+
     return result;
   }
 
@@ -426,23 +439,25 @@ class AgentRegistry {
         // Log error but continue shutdown
       }
     }
-    
+
     _agents.clear();
-    
-    await _eventController.close();
-    
-    _eventController.add(AgentRegistryEvent(
-      type: AgentRegistryEventType.shutdown,
-      data: {},
-      timestamp: DateTime.now(),
-    ));
+
+    if (!_eventController.isClosed) {
+      _eventController.add(AgentRegistryEvent(
+        type: AgentRegistryEventType.shutdown,
+        data: {},
+        timestamp: DateTime.now(),
+      ));
+
+      await _eventController.close();
+    }
   }
 
   /// Create agent from factory
   AgentBase? createAgent(String agentId) {
     final factory = _factories[agentId];
     if (factory == null) return null;
-    
+
     return factory();
   }
 
@@ -493,7 +508,8 @@ class AgentRegistryEvent {
 
   factory AgentRegistryEvent.fromJson(Map<String, dynamic> json) {
     return AgentRegistryEvent(
-      type: AgentRegistryEventType.values.firstWhere((e) => e.name == json['type']),
+      type: AgentRegistryEventType.values
+          .firstWhere((e) => e.name == json['type']),
       data: json['data'] as Map<String, dynamic>,
       timestamp: DateTime.parse(json['timestamp'] as String),
     );
@@ -504,7 +520,7 @@ class AgentRegistryEvent {
 class AgentRegistryException implements Exception {
   final String message;
   AgentRegistryException(this.message);
-  
+
   @override
   String toString() => 'AgentRegistryException: $message';
 }

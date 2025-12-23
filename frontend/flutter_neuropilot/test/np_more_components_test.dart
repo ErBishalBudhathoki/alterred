@@ -44,7 +44,7 @@ void main() {
     String? g;
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
-        body: RadioGroup<String>(
+        body: NpRadioGroup<String>(
           groupValue: g,
           onChanged: (v) => g = v,
           child: Column(children: [

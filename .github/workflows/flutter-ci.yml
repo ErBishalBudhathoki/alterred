@@ -42,7 +42,7 @@ jobs:
         if: env.FIREBASE_ADMIN_SA_JSON != ''
         run: |
           mkdir -p credentials
-          printf "%s" "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
+          printf "%s" "$FIREBASE_ADMIN_SA_JSON" > credentials/firebase-admin.json
 
       - name: Run tests
         working-directory: frontend/flutter_neuropilot
@@ -74,7 +74,7 @@ jobs:
         if: env.FIREBASE_ADMIN_SA_JSON != ''
         run: |
           mkdir -p credentials
-          printf "%s" "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
+          printf "%s" "$FIREBASE_ADMIN_SA_JSON" > credentials/firebase-admin.json
 
       - name: Build Web
         working-directory: frontend/flutter_neuropilot
@@ -129,7 +129,7 @@ jobs:
         if: env.FIREBASE_ADMIN_SA_JSON != ''
         run: |
           mkdir -p credentials
-          printf "%s" "${{ secrets.FIREBASE_ADMIN_SA_JSON }}" > credentials/firebase-admin.json
+          printf "%s" "$FIREBASE_ADMIN_SA_JSON" > credentials/firebase-admin.json
 
       - name: Build Web (env-specific)
         env:
@@ -184,13 +184,13 @@ jobs:
         if: env.ANDROID_GOOGLE_SERVICES_JSON_DEV != ''
         run: |
           mkdir -p frontend/flutter_neuropilot/android/app/src/development
-          printf "%s" "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_DEV }}" > frontend/flutter_neuropilot/android/app/src/development/google-services.json
+          printf "%s" "$ANDROID_GOOGLE_SERVICES_JSON_DEV" > frontend/flutter_neuropilot/android/app/src/development/google-services.json
 
       - name: Write google-services.json for prod flavor
         if: env.ANDROID_GOOGLE_SERVICES_JSON_PROD != ''
         run: |
           mkdir -p frontend/flutter_neuropilot/android/app/src/production
-          printf "%s" "${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_PROD }}" > frontend/flutter_neuropilot/android/app/src/production/google-services.json
+          printf "%s" "$ANDROID_GOOGLE_SERVICES_JSON_PROD" > frontend/flutter_neuropilot/android/app/src/production/google-services.json
 
       - name: Build Android APK (development)
         working-directory: frontend/flutter_neuropilot
