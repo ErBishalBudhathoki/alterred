@@ -40,9 +40,23 @@ jobs:
 
       - name: Write Firebase Admin SA (for server-side steps)
         if: env.FIREBASE_ADMIN_SA_JSON != ''
+        env:
+          SA_CONTENT: ${{ secrets.FIREBASE_ADMIN_SA_JSON }}
         run: |
           mkdir -p credentials
-          printf "%s" "$FIREBASE_ADMIN_SA_JSON" > credentials/firebase-admin.json
+          python -c "
+          import os, json, sys
+          try:
+              content = os.environ['SA_CONTENT']
+              with open('credentials/firebase-admin.json', 'w') as f:
+                  f.write(content)
+              data = json.loads(content)
+              if 'private_key' not in data:
+                   print('::warning::The FIREBASE_ADMIN_SA_JSON secret might be invalid. It is missing the private_key field.')
+          except Exception as e:
+              print(f'::error::Failed to write/parse Firebase Admin SA JSON: {e}')
+              sys.exit(1)
+          "
 
       - name: Run tests
         working-directory: frontend/flutter_neuropilot
@@ -72,9 +86,23 @@ jobs:
 
       - name: Write Firebase Admin SA (optional)
         if: env.FIREBASE_ADMIN_SA_JSON != ''
+        env:
+          SA_CONTENT: ${{ secrets.FIREBASE_ADMIN_SA_JSON }}
         run: |
           mkdir -p credentials
-          printf "%s" "$FIREBASE_ADMIN_SA_JSON" > credentials/firebase-admin.json
+          python -c "
+          import os, json, sys
+          try:
+              content = os.environ['SA_CONTENT']
+              with open('credentials/firebase-admin.json', 'w') as f:
+                  f.write(content)
+              data = json.loads(content)
+              if 'private_key' not in data:
+                   print('::warning::The FIREBASE_ADMIN_SA_JSON secret might be invalid. It is missing the private_key field.')
+          except Exception as e:
+              print(f'::error::Failed to write/parse Firebase Admin SA JSON: {e}')
+              sys.exit(1)
+          "
 
       - name: Build Web
         working-directory: frontend/flutter_neuropilot
@@ -127,9 +155,23 @@ jobs:
 
       - name: Write Firebase Admin SA (optional)
         if: env.FIREBASE_ADMIN_SA_JSON != ''
+        env:
+          SA_CONTENT: ${{ secrets.FIREBASE_ADMIN_SA_JSON }}
         run: |
           mkdir -p credentials
-          printf "%s" "$FIREBASE_ADMIN_SA_JSON" > credentials/firebase-admin.json
+          python -c "
+          import os, json, sys
+          try:
+              content = os.environ['SA_CONTENT']
+              with open('credentials/firebase-admin.json', 'w') as f:
+                  f.write(content)
+              data = json.loads(content)
+              if 'private_key' not in data:
+                   print('::warning::The FIREBASE_ADMIN_SA_JSON secret might be invalid. It is missing the private_key field.')
+          except Exception as e:
+              print(f'::error::Failed to write/parse Firebase Admin SA JSON: {e}')
+              sys.exit(1)
+          "
 
       - name: Build Web (env-specific)
         env:
@@ -182,15 +224,49 @@ jobs:
 
       - name: Write google-services.json for dev flavor
         if: env.ANDROID_GOOGLE_SERVICES_JSON_DEV != ''
+        env:
+          JSON_CONTENT: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_DEV }}
         run: |
           mkdir -p frontend/flutter_neuropilot/android/app/src/development
-          printf "%s" "$ANDROID_GOOGLE_SERVICES_JSON_DEV" > frontend/flutter_neuropilot/android/app/src/development/google-services.json
+          python -c "
+          import os, json, sys
+          try:
+              content = os.environ['JSON_CONTENT']
+              with open('frontend/flutter_neuropilot/android/app/src/development/google-services.json', 'w') as f:
+                  f.write(content)
+              data = json.loads(content)
+              if 'project_info' not in data:
+                  print('::warning::The google-services.json file seems to be missing project_info. Ensure this is the Android Config file, NOT the Service Account key.')
+              if 'private_key' in data:
+                   print('::error::The secret contains a private_key field! This looks like a Service Account Key. Please use the google-services.json from Firebase Console > Project Settings > General > Android.')
+                   sys.exit(1)
+          except Exception as e:
+              print(f'::error::Failed to write/parse google-services.json: {e}')
+              sys.exit(1)
+          "
 
       - name: Write google-services.json for prod flavor
         if: env.ANDROID_GOOGLE_SERVICES_JSON_PROD != ''
+        env:
+          JSON_CONTENT: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON_PROD }}
         run: |
           mkdir -p frontend/flutter_neuropilot/android/app/src/production
-          printf "%s" "$ANDROID_GOOGLE_SERVICES_JSON_PROD" > frontend/flutter_neuropilot/android/app/src/production/google-services.json
+          python -c "
+          import os, json, sys
+          try:
+              content = os.environ['JSON_CONTENT']
+              with open('frontend/flutter_neuropilot/android/app/src/production/google-services.json', 'w') as f:
+                  f.write(content)
+              data = json.loads(content)
+              if 'project_info' not in data:
+                  print('::warning::The google-services.json file seems to be missing project_info. Ensure this is the Android Config file, NOT the Service Account key.')
+              if 'private_key' in data:
+                   print('::error::The secret contains a private_key field! This looks like a Service Account Key. Please use the google-services.json from Firebase Console > Project Settings > General > Android.')
+                   sys.exit(1)
+          except Exception as e:
+              print(f'::error::Failed to write/parse google-services.json: {e}')
+              sys.exit(1)
+          "
 
       - name: Build Android APK (development)
         working-directory: frontend/flutter_neuropilot
